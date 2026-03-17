@@ -1,6 +1,8 @@
 # AIM 2: Hand Mesh Recovery Evaluation on POV-Surgery
 
-Evaluate hand mesh recovery models (starting with [HaMeR](https://github.com/geopavlakos/hamer)) on the [POV-Surgery](https://batfacewayne.github.io/POV_Surgery_io/) surgical dataset, reproducing the 5 metrics from Table 2 of the MICCAI paper *"Reconstructing 3D Hand-Instrument Interaction from a Single 2D Image in Medical Scenes"*.
+Evaluate hand mesh recovery models on the [POV-Surgery](https://batfacewayne.github.io/POV_Surgery_io/) surgical dataset, reproducing the 5 metrics from Table 2 of the MICCAI paper *"Reconstructing 3D Hand-Instrument Interaction from a Single 2D Image in Medical Scenes"*.
+
+Supported models: [HaMeR](https://github.com/geopavlakos/hamer), [HandOCCNet](https://github.com/namepllet/HandOccNet)
 
 ## Metrics
 
@@ -18,16 +20,19 @@ Evaluate hand mesh recovery models (starting with [HaMeR](https://github.com/geo
 SurgicalVLA/
 ├── hamer/                    # HaMeR model repo (cloned separately)
 │   └── _DATA/data/mano/      # MANO model files go here
-├── POV_Surgery/              # POV-Surgery codebase (reference only)
+├── POV_Surgery/              # POV-Surgery codebase + HandOCCNet_ft
+│   └── HandOccNet_ft/        # HandOCCNet finetuning code (with data loader)
 ├── POV_Surgery_data/         # Dataset (downloaded separately)
 │   ├── color/                # RGB images
 │   ├── annotation/           # Per-frame MANO annotation pickles
 │   └── handoccnet_train/     # Train/test split pickles
 └── AIM_2_Project/            # <-- This directory
-    ├── README.md
-    ├── evaluate_hamer.py     # Main evaluation script
-    ├── visualize_hamer.py    # Visualization script
-    └── setup_env.sh          # Environment setup (reference)
+    ├── evaluate.py           # Unified evaluation script (HaMeR + HandOCCNet)
+    ├── evaluate_hamer.py     # HaMeR-specific evaluation (legacy)
+    ├── visualize_hamer.py    # Full-image visualization (HaMeR)
+    ├── visualize_crop.py     # 256x256 crop visualization (HaMeR + HandOCCNet)
+    └── checkpoints/          # Model checkpoints
+        └── HandOccNet_model_dump/HO3D/snapshot_80.pth.tar
 ```
 
 ## Prerequisites
@@ -117,65 +122,76 @@ The GT pipeline:
 3. OpenGL -> OpenCV coordinate change
 4. Root-centering (wrist = joint 0)
 
-### Step 2: Evaluate HaMeR
+### Step 2: Evaluate Models
+
+Use the unified `evaluate.py` script, or the model-specific `evaluate_hamer.py`:
 
 ```bash
-# Full evaluation (26,418 test frames)
-python evaluate_hamer.py --data_dir $DATA_DIR
+# HaMeR (full evaluation, 26,418 test frames)
+python evaluate.py --data_dir $DATA_DIR --model hamer
+
+# HandOCCNet (zero-shot, HO3D-pretrained)
+CUDA_VISIBLE_DEVICES=0 python evaluate.py --data_dir $DATA_DIR --model handoccnet
 
 # Quick test with subset
-python evaluate_hamer.py --data_dir $DATA_DIR --max_samples 100
+python evaluate.py --data_dir $DATA_DIR --model hamer --max_samples 100
 
 # Use a custom checkpoint
-python evaluate_hamer.py --data_dir $DATA_DIR --checkpoint /path/to/checkpoint.ckpt
+python evaluate.py --data_dir $DATA_DIR --model hamer --hamer_ckpt /path/to/checkpoint.ckpt
+python evaluate.py --data_dir $DATA_DIR --model handoccnet --handoccnet_ckpt /path/to/snapshot.pth.tar
 ```
 
-Output Result:
-```
-==================================================
-HaMeR Zero-Shot Evaluation on POV-Surgery
-==================================================
-Evaluated: 26418 samples  |  Skipped: 0
-==================================================
-  P_2d:      30.50 pixels
-  MPJPE:     54.35 mm
-  PVE:       51.71 mm
-  PA-MPJPE:  11.16 mm
-  PA-PVE:    10.47 mm
-==================================================
+### Zero-Shot Results
 
-Paper Table 2 (finetuned HaMeR):
-  P_2d=13.05  MPJPE=13.15  PVE=12.55  PA-MPJPE=4.41  PA-PVE=4.18
+| Method | Checkpoint | P_2d (px) | MPJPE (mm) | PVE (mm) | PA-MPJPE (mm) | PA-PVE (mm) |
+|--------|-----------|-----------|------------|----------|---------------|-------------|
+| **HaMeR** | DEFAULT (pretrained) | 30.50 | 54.35 | 51.71 | 11.16 | 10.47 |
+| **HandOCCNet** | HO3D snapshot_80 | 130.78 | 125.31 | 121.07 | 16.73 | 16.23 |
 
-```
+### Paper Table 2 (Finetuned on POV-Surgery)
 
-Per-sample results are saved to `results_hamer.pkl`.
+| Method | P_2d | MPJPE | PVE | PA-MPJPE | PA-PVE |
+|--------|------|-------|-----|----------|--------|
+| METRO | 30.49 | 14.90 | 13.80 | 6.36 | 4.34 |
+| HandTailor | 25.42 | 13.20 | 12.48 | 5.89 | 4.19 |
+| Mesh Graphormer | 20.36 | 12.75 | 12.68 | 5.46 | 4.32 |
+| WiLoR | 18.48 | 13.72 | 12.91 | 4.33 | 4.20 |
+| SimpleHand | 16.52 | 13.45 | 12.61 | 4.32 | 4.19 |
+| SEMI | 13.42 | 15.14 | 14.69 | 4.29 | 4.23 |
+| HandOCCNet | 13.80 | 14.35 | 13.73 | 4.49 | 4.35 |
+| HaMeR | 13.05 | 13.15 | 12.55 | 4.41 | 4.18 |
+| CPCI (paper's method) | **12.08** | **12.21** | **12.25** | **4.21** | **4.20** |
+
+Per-sample results are saved to `results_hamer.pkl` / `results_handoccnet.pkl`.
 
 ### Step 3: Visualize
 
-Generates 2x2 panel images comparing GT vs HaMeR predictions:
+#### Full-image visualization (HaMeR only)
 
-| | Left | Right |
-|---|---|---|
-| **Top** | GT 2D joints | Predicted 2D joints |
-| **Bottom** | GT mesh (green) | Predicted mesh (blue) |
+Generates 2x2 panel: GT 2D joints | Pred 2D joints | GT mesh (green) | Pred mesh (blue)
 
 ```bash
-# 10 random samples (seed=42)
-python visualize_hamer.py --data_dir $DATA_DIR
-
-# More samples
-python visualize_hamer.py --data_dir $DATA_DIR --n_samples 20
-
-# Specific frames
-python visualize_hamer.py --data_dir $DATA_DIR \
-    --samples m_diskplacer_1/00063,R2_d_friem_1/00238
-
-# Custom output directory
-python visualize_hamer.py --data_dir $DATA_DIR --output_dir ./my_vis
+python visualize_hamer.py --data_dir $DATA_DIR --n_samples 10
+python visualize_hamer.py --data_dir $DATA_DIR --samples m_diskplacer_1/00063,R2_d_friem_1/00238
 ```
 
 Output: `visualizations/<seq_name>_<frame_id>.jpg`
+
+#### Crop-space visualization (HaMeR + HandOCCNet)
+
+Shows GT (green) vs Pred (red) 2D joints in the 256x256 crop that each model actually sees. Useful for direct comparison.
+
+```bash
+# HaMeR
+python visualize_crop.py --data_dir $DATA_DIR --model hamer --n_samples 10
+
+# HandOCCNet
+CUDA_VISIBLE_DEVICES=0 python visualize_crop.py --data_dir $DATA_DIR --model handoccnet --n_samples 10
+```
+
+Output: `visualizations_crop/<model>_<seq_name>_<frame_id>.jpg`
+
+> **Note**: HaMeR uses a 2.5x bbox expansion (hand ~25% of crop), while HandOCCNet uses 1.5x (hand ~75% of crop). This is inherited from each model's original repo.
 
 ## Script Arguments Reference
 
@@ -227,14 +243,29 @@ K = [[1198.4395,    0,    960.0],
 ```
 
 ### Extending to Other Models
-The GT cache (`gt_cache_povsurgery_test.pkl`) is model-independent. To evaluate a new model:
+
+**Option A (shared GT cache):** For models that output MANO-compatible joints/vertices:
 1. Reuse the existing GT cache (no need to rerun `--precompute_gt`)
-2. Write a new inference function replacing `run_hamer_inference()`
+2. Add a new backend in `evaluate.py` (see `run_hamer_sample` as template)
 3. Ensure predicted joints are in MANO order (21 joints) and root-centered
+
+**Option B (self-contained):** For models with their own data loader + GT pipeline (like HandOCCNet):
+1. Use the model's native data loader and forward pass
+2. Collect per-sample metrics from the model's output
+3. Report in the same format for comparison
+
+### HandOCCNet Checkpoints
+
+Downloaded from the [original repo](https://github.com/namepllet/HandOccNet):
+- `checkpoints/HandOccNet_model_dump/HO3D/snapshot_80.pth.tar` — pretrained on HO3D (zero-shot)
+- `checkpoints/HandOccNet_model_dump/DexYCB/snapshot_25.pth.tar` — pretrained on DexYCB
+
+No finetuned POV-Surgery checkpoint is publicly available. To finetune, use the code in `POV_Surgery/HandOccNet_ft/` with `snapshot_80.pth.tar` as initialization.
 
 ## References
 
 - **HaMeR**: Pavlakos et al., "Reconstructing Hands in 3D with Transformers", CVPR 2024
-- **POV-Surgery**: Batmangelich et al., "POV-Surgery: A Dataset for Egocentric Hand and Tool Pose Estimation During Surgical Activities", MICCAI 2023
-- **Reconstructing 3D Hand-Instrument Interaction from a Single 2D Image in Medical Scenes**:  MICCAI 2025
+- **HandOCCNet**: Park et al., "HandOccNet: Occlusion-Robust 3D Hand Mesh Estimation Network", CVPR 2022
+- **POV-Surgery**: Wang et al., "POV-Surgery: A Dataset for Egocentric Hand and Tool Pose Estimation During Surgical Activities", MICCAI 2023
+- **CPCI**: Xu et al., "Reconstructing 3D Hand-Instrument Interaction from a Single 2D Image in Medical Scenes", MICCAI 2025
 - **MANO**: Romero et al., "Embodied Hands: Modeling and Capturing Hands and Bodies Together", SIGGRAPH Asia 2017
