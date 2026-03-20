@@ -32,6 +32,24 @@ pov_surgery_data/
 
 Download from [MANO website](https://mano.is.tue.mpg.de/). Place `MANO_RIGHT.pkl` in the bodymodel directory above.
 
+### 3. Pretrained Checkpoints
+
+**HaMeR**: Run the fetch script from the HaMeR repo:
+```bash
+cd hamer/
+bash fetch_demo_data.sh
+```
+This downloads to `hamer/_DATA/hamer_ckpts/checkpoints/hamer.ckpt`.
+
+**HandOCCNet**: Download from [Google Drive](https://drive.google.com/drive/folders/1OlyV-qbzOmtQYdzV6dbQX4OtAU5ajBOa) and place in:
+```
+AIM_2_Project/checkpoints/HandOccNet_model_dump/
+├── HO3D/snapshot_80.pth.tar       # pretrained on HO3D (recommended)
+└── DexYCB/snapshot_25.pth.tar     # pretrained on DexYCB
+```
+
+**WiLoR**: No manual download needed — `wilor_mini` downloads checkpoints automatically on first run.
+
 ## Reproduction Steps
 
 ```bash
