@@ -47,7 +47,7 @@ def build_gt_mano(mano_model_dir, device):
         model_type="mano",
         is_rhand=True,
         use_pca=False,
-        flat_hand_mean=False,
+        flat_hand_mean=True,
     ).to(device)
 
     tip_ids = [
@@ -234,21 +234,55 @@ def main():
     parser = argparse.ArgumentParser(description="Evaluate WiLoR on POV-Surgery")
     parser.add_argument("--mode", choices=["detect", "crop"], default="crop",
                         help="detect: YOLO detector; crop: GT-derived bboxes (default: crop)")
+    parser.add_argument("--split", type=str, default="demo",
+                        help="'demo' (s_scalpel_3 only, default), "
+                             "'full' (all test sequences via official split), "
+                             "or a sequence name (e.g. 'm_diskplacer_1')")
     parser.add_argument("--max-frames", type=int, default=0, help="Max frames (0 = all)")
     parser.add_argument("--data-dir", type=str, default="../pov_surgery_data",
                         help="Path to pov_surgery_data/ (default: ../pov_surgery_data)")
-    parser.add_argument("--output-dir", type=str, default="results",
-                        help="Output directory (default: results/)")
+    parser.add_argument("--output-dir", type=str, default=None,
+                        help="Output directory (default: auto based on split)")
     parser.add_argument("--device", type=str, default=None, help="Device (mps/cuda/cpu)")
     args = parser.parse_args()
 
     # Resolve paths
     data_dir = Path(args.data_dir).resolve()
-    output_dir = Path(args.output_dir).resolve()
-    demo_dir = data_dir / "demo_data" / "POV_Surgery_data"
-    annotation_dir = demo_dir / "annotation" / "s_scalpel_3"
-    image_dir = demo_dir / "color" / "s_scalpel_3"
+
+    # Determine data root and sequences based on split
+    if args.split == "demo":
+        data_root = data_dir / "demo_data" / "POV_Surgery_data"
+        sequences = ["s_scalpel_3"]
+        split_label = "s_scalpel_3 (demo)"
+        test_info = None
+    elif args.split == "full":
+        data_root = data_dir / "demo_data" / "POV_Surgery_data"
+        test_pkl = data_root / "handoccnet_train" / "2d_repro_ho3d_style_test_cleaned.pkl"
+        if not test_pkl.exists():
+            raise FileNotFoundError(
+            f"Test split pickle not found at {test_pkl}\n"
+            f"Download POV_Surgery_data from: "
+            f"https://drive.google.com/drive/folders/1nSDig2cEHscCPgG10-VcSW3Q1zKge4tP"
+            )
+        import pickle as pkl_mod
+        with open(test_pkl, "rb") as f:
+            test_info = pkl_mod.load(f)
+        sequences = sorted(set(k.split("/")[0] for k in test_info.keys()))
+        split_label = f"full test set ({len(sequences)} sequences)"
+    else:
+        data_root = data_dir / "demo_data" / "POV_Surgery_data"
+        sequences = [args.split]
+        split_label = args.split
+        test_info = None
+
     mano_model_dir = data_dir / "data" / "bodymodel"
+
+    # Auto output dir
+    if args.output_dir:
+        output_dir = Path(args.output_dir).resolve()
+    else:
+        output_dir = Path("results").resolve() / args.split
+    output_dir.mkdir(parents=True, exist_ok=True)
 
     # Setup device
     if args.device:
@@ -261,14 +295,40 @@ def main():
         device = torch.device("cpu")
     dtype = torch.float16 if device.type == "cuda" else torch.float32
     print(f"Device: {device}, dtype: {dtype}")
+    print(f"Split: {split_label}")
 
-    # Check data exists
-    annotation_files = sorted(annotation_dir.glob("*.pkl"))
-    image_files = sorted(image_dir.glob("*.jpg"))
+    # Collect frames. When test_info pickle is available, use it (has pre-stored 2D joints).
+    annotation_files = []  # list of (key, pkl_path, img_path, joints_uv_or_None)
+    if test_info is not None:
+        for pkl_key, val in test_info.items():
+            seq, frame_id = pkl_key.split("/")
+            pkl_path = data_root / "annotation" / seq / f"{frame_id}.pkl"
+            img_path = data_root / "color" / seq / f"{frame_id}.jpg"
+            if pkl_path.exists() and img_path.exists():
+                juv_raw = val["joints_uv"]
+                juv = np.zeros_like(juv_raw)
+                juv[:, 0] = juv_raw[:, 1]
+                juv[:, 1] = juv_raw[:, 0]
+                # Reorder from MANO to OpenPose (matches 3D joint order in this script)
+                juv = juv[MANO_TO_OPENPOSE]
+                annotation_files.append((pkl_key, pkl_path, img_path, juv))
+    else:
+        for seq in sequences:
+            ann_dir = data_root / "annotation" / seq
+            img_dir = data_root / "color" / seq
+            if not ann_dir.exists():
+                print(f"  WARNING: annotation dir not found: {ann_dir}")
+                continue
+            for pkl_path in sorted(ann_dir.glob("*.pkl")):
+                frame_id = pkl_path.stem
+                img_path = img_dir / f"{frame_id}.jpg"
+                if img_path.exists():
+                    annotation_files.append((f"{seq}/{frame_id}", pkl_path, img_path, None))
+
     if not annotation_files:
-        print(f"ERROR: No annotations found in {annotation_dir}")
+        print(f"ERROR: No annotation/image pairs found for split '{args.split}'")
         sys.exit(1)
-    print(f"Found {len(annotation_files)} annotations, {len(image_files)} images")
+    print(f"Found {len(annotation_files)} frames across {len(sequences)} sequence(s)")
 
     if args.max_frames > 0:
         annotation_files = annotation_files[: args.max_frames]
@@ -296,35 +356,63 @@ def main():
     torch.load = _original_load
     print("WiLoR loaded.")
 
+    # ── Precompute GT (saved to disk, keyed by seq/frame_id) ─────────
+    gt_cache_path = output_dir / f"gt_cache_{args.split}.pkl"
+    if gt_cache_path.exists():
+        print(f"\nLoading cached GT from {gt_cache_path}...")
+        import pickle as pkl_cache
+        with open(gt_cache_path, "rb") as f:
+            gt_cache = pkl_cache.load(f)
+        print(f"  Loaded GT cache: {len(gt_cache)} frames.")
+    else:
+        print("\nPrecomputing GT for all frames...")
+        gt_cache = {}
+        for key, pkl_path, img_path, joints_uv in annotation_files:
+            gt = load_gt_annotation(pkl_path)
+            gt_joints_local, gt_verts_local = mano_forward(
+                gt_mano, tip_ids,
+                gt["global_orient"], gt["hand_pose"], gt["betas"],
+                device,
+            )
+            gt_joints, gt_verts = transform_to_camera(gt_joints_local, gt_verts_local, gt)
+
+            if joints_uv is not None:
+                x_min, y_min = joints_uv.min(axis=0)
+                x_max, y_max = joints_uv.max(axis=0)
+                cx, cy = (x_min + x_max) / 2, (y_min + y_max) / 2
+                s = max(x_max - x_min, y_max - y_min) * 1.5
+                bbox = np.array([max(0, cx - s/2), max(0, cy - s/2),
+                                 min(1920, cx + s/2), min(1080, cy + s/2)])
+            else:
+                bbox = derive_bbox_from_gt(gt_joints, K, (1080, 1920), pad_factor=1.5)
+
+            gt_cache[key] = {
+                "joints": gt_joints, "verts": gt_verts, "bbox": bbox,
+                "joints_2d": joints_uv,
+            }
+        import pickle as pkl_cache
+        with open(gt_cache_path, "wb") as f:
+            pkl_cache.dump(gt_cache, f)
+        print(f"  GT precomputed and saved: {len(gt_cache)} frames -> {gt_cache_path}")
+    bbox_failures = sum(1 for v in gt_cache.values() if v["bbox"] is None)
+
     # ── Evaluation loop ────────────────────────────────────────────────
     print(f"\nMode: {args.mode}")
     all_metrics = []
     detection_failures = 0
-    bbox_failures = 0
     t_start = time.time()
 
-    for i, pkl_path in enumerate(annotation_files):
-        frame_id = pkl_path.stem
-        img_path = image_dir / f"{frame_id}.jpg"
+    for i, (key, pkl_path, img_path, _joints_uv) in enumerate(annotation_files):
 
-        if not img_path.exists():
-            continue
-
-        if (i + 1) % 50 == 0 or i == 0:
+        if (i + 1) % 200 == 0 or i == 0:
             elapsed = time.time() - t_start
             fps = (i + 1) / elapsed if elapsed > 0 else 0
             print(f"  [{i+1}/{len(annotation_files)}]  {fps:.1f} frames/s  "
                   f"det_fail={detection_failures}  bbox_fail={bbox_failures}")
 
-        gt = load_gt_annotation(pkl_path)
-
-        gt_joints_local, gt_verts_local = mano_forward(
-            gt_mano, tip_ids,
-            gt["global_orient"], gt["hand_pose"], gt["betas"],
-            device,
-        )
-
-        gt_joints, gt_verts = transform_to_camera(gt_joints_local, gt_verts_local, gt)
+        cached = gt_cache[key]
+        gt_joints = cached["joints"]
+        gt_verts = cached["verts"]
 
         image = np.array(Image.open(img_path).convert("RGB"))
 
@@ -332,10 +420,10 @@ def main():
             outputs = pipe.predict(image)
             pred = extract_right_hand(outputs)
         else:
-            bbox = derive_bbox_from_gt(gt_joints, K, image.shape[:2], pad_factor=1.5)
+            bbox = cached["bbox"]
             if bbox is None:
                 bbox_failures += 1
-                all_metrics.append({"frame_id": frame_id, "detected": False, "reason": "bbox_fail"})
+                all_metrics.append({"frame_id": key, "detected": False, "reason": "bbox_fail"})
                 continue
             bboxes = np.array([bbox])
             is_rights = [1.0]
@@ -344,7 +432,7 @@ def main():
 
         if pred is None:
             detection_failures += 1
-            all_metrics.append({"frame_id": frame_id, "detected": False, "reason": "no_detection"})
+            all_metrics.append({"frame_id": key, "detected": False, "reason": "no_detection"})
             continue
 
         pred_joints = pred["joints_3d"]
@@ -371,8 +459,12 @@ def main():
         per_finger = compute_per_finger_mpjpe(pred_joints, gt_joints)
 
         # 2D reprojection error
-        gt_2d = (K @ gt_joints.T).T
-        gt_2d = gt_2d[:, :2] / gt_2d[:, 2:3]
+        gt_2d_stored = cached.get("joints_2d")
+        if gt_2d_stored is not None:
+            gt_2d = gt_2d_stored
+        else:
+            gt_2d_proj = (K @ gt_joints.T).T
+            gt_2d = gt_2d_proj[:, :2] / gt_2d_proj[:, 2:3]
         if args.mode == "crop":
             wilor_kp2d = outputs[0]["wilor_preds"].get("pred_keypoints_2d")
         else:
@@ -388,7 +480,7 @@ def main():
             p2d_error = float("nan")
 
         metrics = {
-            "frame_id": frame_id,
+            "frame_id": key,
             "detected": True,
             "mpjpe": float(mpjpe),
             "pa_mpjpe": float(pa_mpjpe),
@@ -408,7 +500,7 @@ def main():
     mode_label = "YOLO detect" if args.mode == "detect" else "GT-bbox crop-regress"
     print("\n" + "=" * 60)
     print(f"RESULTS: WiLoR (off-the-shelf, {mode_label})")
-    print(f"Dataset: POV-Surgery s_scalpel_3 (demo)")
+    print(f"Dataset: POV-Surgery {split_label}")
     print("=" * 60)
     print(f"Total frames:       {total}")
     print(f"Detected:           {n_det} ({100*n_det/total:.1f}%)")
@@ -422,7 +514,8 @@ def main():
         pa_mpjpe_vals = [m["pa_mpjpe"] for m in detected]
         pve_vals = [m["pve"] for m in detected]
         pa_pve_vals = [m["pa_pve"] for m in detected]
-        p2d_vals = [m["p2d"] for m in detected]
+        p2d_vals = [m["p2d"] for m in detected if not np.isnan(m["p2d"])]
+        p2d_skipped = sum(1 for m in detected if np.isnan(m["p2d"]))
 
         print(f"\n{'Metric':<20} {'Mean':>8} {'Median':>8} {'Std':>8}")
         print("-" * 48)
@@ -435,6 +528,8 @@ def main():
         ]:
             arr = np.array(vals)
             print(f"{name:<20} {arr.mean():>8.2f} {np.median(arr):>8.2f} {arr.std():>8.2f}")
+        if p2d_skipped > 0:
+            print(f"  (P2d: {p2d_skipped} frames skipped due to missing 2D predictions)")
 
         # Per-finger
         print(f"\n{'Finger':<12} {'MPJPE (mm)':>12}")
@@ -450,7 +545,7 @@ def main():
     with open(results_path, "w") as f:
         json.dump({
             "model": f"WiLoR (off-the-shelf, {args.mode})",
-            "dataset": "POV-Surgery s_scalpel_3 (demo)",
+            "dataset": f"POV-Surgery {split_label}",
             "total_frames": total,
             "detected": n_det,
             "detection_failures": detection_failures,
@@ -460,7 +555,7 @@ def main():
                 "pa_mpjpe_mean": float(np.mean(pa_mpjpe_vals)) if n_det else None,
                 "pve_mean": float(np.mean(pve_vals)) if n_det else None,
                 "pa_pve_mean": float(np.mean(pa_pve_vals)) if n_det else None,
-                "p2d_mean": float(np.mean(p2d_vals)) if n_det else None,
+                "p2d_mean": float(np.mean(p2d_vals)) if p2d_vals else None,
             },
             "per_frame": all_metrics,
         }, f, indent=2)
