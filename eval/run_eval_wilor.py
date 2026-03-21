@@ -352,7 +352,7 @@ def main():
     from wilor_mini.pipelines.wilor_hand_pose3d_estimation_pipeline import (
         WiLorHandPose3dEstimationPipeline,
     )
-    pipe = WiLorHandPose3dEstimationPipeline(device=device, dtype=dtype)
+    pipe = WiLorHandPose3dEstimationPipeline(device=device, dtype=dtype, verbose=False)
     torch.load = _original_load
     print("WiLoR loaded.")
 
