@@ -469,8 +469,8 @@ def main():
     results_path = Path(args.results)
     data_dir = Path(args.data_dir).resolve()
     demo_dir = data_dir / "demo_data" / "POV_Surgery_data"
-    annotation_dir = demo_dir / "annotation" / "s_scalpel_3"
-    image_dir = demo_dir / "color" / "s_scalpel_3"
+    annotation_dir = demo_dir / "annotation"
+    image_dir = demo_dir / "color"
     mano_model_dir = data_dir / "data" / "bodymodel"
 
     if args.output_dir:
@@ -535,9 +535,15 @@ def main():
     for count, (idx, cat) in enumerate(selection):
         frame = detected[idx]
         frame_id = frame["frame_id"]
-        img_path = image_dir / f"{frame_id}.jpg"
-        pkl_path = annotation_dir / f"{frame_id}.pkl"
-
+        # If frame_id includes sequence (e.g. "m_diskplacer_1/00063"), look
+        # directly under annotation/color dirs; otherwise fall back to the
+        # legacy s_scalpel_3 subdirectory for backward compatibility.
+        if "/" in frame_id:
+            img_path = image_dir / f"{frame_id}.jpg"
+            pkl_path = annotation_dir / f"{frame_id}.pkl"
+        else:
+            img_path = image_dir / "s_scalpel_3" / f"{frame_id}.jpg"
+            pkl_path = annotation_dir / "s_scalpel_3" / f"{frame_id}.pkl"
         if not img_path.exists() or not pkl_path.exists():
             print(f"  Skipping {frame_id}: missing files")
             continue
@@ -587,7 +593,8 @@ def main():
             img_bgr, gt_2d, pred_2d_raw, pred_2d_aligned,
             frame["pa_mpjpe"], frame["mpjpe"], frame_id,
             crop_size=args.crop_size)
-        out_path = output_dir / f"{frame_id}_{cat}_overlay.jpg"
+        safe_id = frame_id.replace("/", "_")
+        out_path = output_dir / f"{safe_id}_{cat}_overlay.jpg"
         cv2.imwrite(str(out_path), combined, [cv2.IMWRITE_JPEG_QUALITY, 95])
 
         # For composite grid: just the "both overlaid" crop

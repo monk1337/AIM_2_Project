@@ -57,12 +57,12 @@ def plot_metric_bar(detected, summary, output_dir, model_name="WiLoR"):
     ax.set_ylabel("Error (mm)")
     ax.set_title(f"{model_name} Off-the-Shelf on POV-Surgery (Crop-Regress)")
     ax.grid(axis="y", alpha=0.3)
-    fig.savefig(output_dir / "metric_bar.png", bbox_inches="tight")
+    fig.savefig(output_dir / f"{model_name.lower()}_metric_bar.png", bbox_inches="tight")
     plt.close(fig)
-    print(f"  Saved metric_bar.png")
+    print(f"  Saved {model_name.lower()}_metric_bar.png")
 
 
-def plot_pa_mpjpe_histogram(detected, output_dir):
+def plot_pa_mpjpe_histogram(detected, output_dir, model_name="WiLoR"):
     """Histogram of per-frame PA-MPJPE distribution."""
     vals = np.array([m["pa_mpjpe"] for m in detected])
 
@@ -77,12 +77,12 @@ def plot_pa_mpjpe_histogram(detected, output_dir):
     ax.set_title(f"PA-MPJPE Distribution (n={len(vals)} frames)")
     ax.legend()
     ax.grid(axis="y", alpha=0.3)
-    fig.savefig(output_dir / "pa_mpjpe_histogram.png", bbox_inches="tight")
+    fig.savefig(output_dir / f"{model_name.lower()}_pa_histogram.png", bbox_inches="tight")
     plt.close(fig)
-    print(f"  Saved pa_mpjpe_histogram.png")
+    print(f"  Saved {model_name.lower()}_pa_histogram.png")
 
 
-def plot_mpjpe_over_frames(detected, output_dir):
+def plot_mpjpe_over_frames(detected, output_dir, model_name="WiLoR"):
     """Line plot of MPJPE over frame index with rolling average."""
     vals = np.array([m["mpjpe"] for m in detected])
     indices = np.arange(len(vals))
@@ -100,12 +100,12 @@ def plot_mpjpe_over_frames(detected, output_dir):
     ax.set_title("MPJPE Over Frames")
     ax.legend()
     ax.grid(alpha=0.3)
-    fig.savefig(output_dir / "mpjpe_over_frames.png", bbox_inches="tight")
+    fig.savefig(output_dir / f"{model_name.lower()}_mpjpe_temporal.png", bbox_inches="tight")
     plt.close(fig)
-    print(f"  Saved mpjpe_over_frames.png")
+    print(f"  Saved {model_name.lower()}_mpjpe_temporal.png")
 
 
-def plot_per_finger_boxplot(detected, output_dir):
+def plot_per_finger_boxplot(detected, output_dir, model_name="WiLoR"):
     """Box plot of per-finger MPJPE."""
     finger_names = ["thumb", "index", "middle", "ring", "pinky"]
     finger_data = {fn: [m["per_finger"][fn] for m in detected] for fn in finger_names}
@@ -129,12 +129,12 @@ def plot_per_finger_boxplot(detected, output_dir):
     ax.set_title("Per-Finger MPJPE (Root-Relative)")
     ax.legend()
     ax.grid(axis="y", alpha=0.3)
-    fig.savefig(output_dir / "per_finger_boxplot.png", bbox_inches="tight")
+    fig.savefig(output_dir / f"{model_name.lower()}_per_finger.png", bbox_inches="tight")
     plt.close(fig)
-    print(f"  Saved per_finger_boxplot.png")
+    print(f"  Saved {model_name.lower()}_per_finger.png")
 
 
-def plot_mpjpe_vs_pa_mpjpe(detected, output_dir):
+def plot_mpjpe_vs_pa_mpjpe(detected, output_dir, model_name="WiLoR"):
     """Scatter plot: MPJPE vs PA-MPJPE per frame, colored by frame index."""
     mpjpe_vals = np.array([m["mpjpe"] for m in detected])
     pa_mpjpe_vals = np.array([m["pa_mpjpe"] for m in detected])
@@ -152,9 +152,9 @@ def plot_mpjpe_vs_pa_mpjpe(detected, output_dir):
     ax.set_ylabel("MPJPE (mm)")
     ax.set_title("Position Error vs Shape Error per Frame")
     ax.grid(alpha=0.3)
-    fig.savefig(output_dir / "error_scatter.png", bbox_inches="tight")
+    fig.savefig(output_dir / f"{model_name.lower()}_error_scatter.png", bbox_inches="tight")
     plt.close(fig)
-    print(f"  Saved error_scatter.png")
+    print(f"  Saved {model_name.lower()}_error_scatter.png")
 
 
 def plot_summary_table(detected, summary, output_dir, model_name="WiLoR"):
@@ -230,10 +230,10 @@ def main():
     print(f"Generating figures in {output_dir}/\n")
 
     plot_metric_bar(detected, summary, output_dir, model_name=model_name)
-    plot_pa_mpjpe_histogram(detected, output_dir)
-    plot_mpjpe_over_frames(detected, output_dir)
-    plot_per_finger_boxplot(detected, output_dir)
-    plot_mpjpe_vs_pa_mpjpe(detected, output_dir)
+    plot_pa_mpjpe_histogram(detected, output_dir, model_name=model_name)
+    plot_mpjpe_over_frames(detected, output_dir, model_name=model_name)
+    plot_per_finger_boxplot(detected, output_dir, model_name=model_name)
+    plot_mpjpe_vs_pa_mpjpe(detected, output_dir, model_name=model_name)
     plot_summary_table(detected, summary, output_dir, model_name=model_name)
 
     print(f"\nDone! 6 figures saved to {output_dir}/")
