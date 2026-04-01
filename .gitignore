@@ -4,4 +4,4 @@ PIPELINE_EXPLAINED.md
 checkpoints/**
 eval/results/**
 pov_surgery_data/**
-_DATA/**
+_DATA
