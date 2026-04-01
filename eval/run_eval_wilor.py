@@ -244,6 +244,8 @@ def main():
     parser.add_argument("--output-dir", type=str, default=None,
                         help="Output directory (default: auto based on split)")
     parser.add_argument("--device", type=str, default=None, help="Device (mps/cuda/cpu)")
+    parser.add_argument("--ckpt-path", type=str, default=None,
+                        help="Path to finetuned checkpoint. If provided, swaps model weights after loading.")
     args = parser.parse_args()
 
     # Resolve paths
@@ -354,7 +356,19 @@ def main():
     )
     pipe = WiLorHandPose3dEstimationPipeline(device=device, dtype=dtype, verbose=False)
     torch.load = _original_load
-    print("WiLoR loaded.")
+
+    # Swap in finetuned weights if provided
+    if args.ckpt_path:
+        print(f"Loading finetuned weights from {args.ckpt_path}")
+        ckpt = torch.load(args.ckpt_path, map_location='cpu', weights_only=False)
+        state_dict = ckpt.get('state_dict', ckpt)
+        missing, unexpected = pipe.wilor_model.load_state_dict(state_dict, strict=False)
+        print(f"  Missing: {len(missing)}, Unexpected: {len(unexpected)}")
+        pipe.wilor_model.eval()
+        pipe.wilor_model.to(device, dtype=dtype)
+
+    model_label = "finetuned" if args.ckpt_path else "off-the-shelf"
+    print(f"WiLoR loaded ({model_label}).")
 
     # ── Precompute GT (saved to disk, keyed by seq/frame_id) ─────────
     gt_cache_path = output_dir / f"gt_cache_{args.split}.pkl"
@@ -499,7 +513,7 @@ def main():
 
     mode_label = "YOLO detect" if args.mode == "detect" else "GT-bbox crop-regress"
     print("\n" + "=" * 60)
-    print(f"RESULTS: WiLoR (off-the-shelf, {mode_label})")
+    print(f"RESULTS: WiLoR ({model_label}, {mode_label})")
     print(f"Dataset: POV-Surgery {split_label}")
     print("=" * 60)
     print(f"Total frames:       {total}")
@@ -544,7 +558,7 @@ def main():
     results_path = output_dir / f"wilor_{args.mode}_results.json"
     with open(results_path, "w") as f:
         json.dump({
-            "model": f"WiLoR (off-the-shelf, {args.mode})",
+            "model": f"WiLoR ({model_label}, {args.mode})",
             "dataset": f"POV-Surgery {split_label}",
             "total_frames": total,
             "detected": n_det,

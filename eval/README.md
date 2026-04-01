@@ -86,30 +86,28 @@ python run_eval_hamer.py --mode crop --max-frames 10 --data-dir ../pov_surgery_d
 
 ### WiLoR (off-the-shelf, crop-regress mode)
 
-| Metric | Mean | Median | Std |
-|--------|------|--------|-----|
-| MPJPE (mm) | 49.31 | 48.72 | 6.62 |
-| PA-MPJPE (mm) | 20.39 | 20.36 | 1.54 |
-| PVE (mm) | 45.94 | 45.51 | 6.30 |
-| PA-PVE (mm) | 18.83 | 18.80 | 1.43 |
+| Metric | Mean |
+|--------|------|
+| MPJPE (mm) | 50.36 |
+| PA-MPJPE (mm) | 10.69 |
+| PVE (mm) | 47.92 |
+| PA-PVE (mm) | 10.01 |
+| P2D (px) | 26.00 |
 
-- Total frames: 1,571
 - Detection rate: 100% (using GT-derived bboxes)
 - YOLO detection rate: 0% (WiLoR's built-in detector fails completely on surgical frames)
 
 ### HaMeR (off-the-shelf, crop-regress mode)
 
-| Metric | Mean | Median | Std |
-|--------|------|--------|-----|
-| MPJPE (mm) | 49.65 | 49.17 | 7.06 |
-| PA-MPJPE (mm) | 20.65 | 20.62 | 1.79 |
-| PVE (mm) | 46.61 | 46.33 | 6.77 |
-| PA-PVE (mm) | 19.09 | 19.04 | 1.66 |
-| P2D (px) | 81.67 | 77.92 | 16.48 |
+| Metric | Mean |
+|--------|------|
+| MPJPE (mm) | 54.31 |
+| PA-MPJPE (mm) | 11.17 |
+| PVE (mm) | 51.68 |
+| PA-PVE (mm) | 10.48 |
+| P2D (px) | 30.58 |
 
-- Total frames: 1,571
 - Success rate: 100% (0 inference failures)
-- P2D is 4x better than WiLoR (81.67px vs 322.36px)
 
 ## Output Structure
 
