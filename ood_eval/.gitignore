@@ -1,0 +1,7 @@
+# Generated / downloaded artifacts - do not commit
+aria_val_raw/
+aixsuture_raw/
+common_format/
+results/
+__pycache__/
+*.log
