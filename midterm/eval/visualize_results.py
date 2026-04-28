@@ -191,7 +191,7 @@ def plot_summary_table(detected, summary, output_dir, model_name="WiLoR"):
         table[1, j].set_facecolor("#d4edff")
     table[1, -1].set_facecolor("#d4edff")
 
-    ax.set_title(f"{model_name} Off-the-Shelf on POV-Surgery — Summary Statistics", pad=20)
+    ax.set_title(f"{model_name} Off-the-Shelf on POV-Surgery, Summary Statistics", pad=20)
     fig.savefig(output_dir / "summary_table.png", bbox_inches="tight")
     plt.close(fig)
     print(f"  Saved summary_table.png")

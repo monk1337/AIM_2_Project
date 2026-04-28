@@ -2,8 +2,8 @@
 Step 1: Filter EgoSurgery frames for VLA prototype pipeline.
 
 Filters:
-  A) Phase filter — keep only incision, closure, dissection
-  B) Hand visibility — keep only frames with hand bbox annotations
+  A) Phase filter, keep only incision, closure, dissection
+  B) Hand visibility, keep only frames with hand bbox annotations
   C) Sample ~20 frames evenly across phases, preferring bimanual frames
 
 Usage:
@@ -181,7 +181,7 @@ def filter_and_sample(video_id: str, samples_per_phase: int, seed: int = 42) -> 
         n = min(samples_per_phase, len(phase_frames))
 
         if len(bimanual) >= n:
-            # Enough bimanual — sample evenly spaced
+            # Enough bimanual, sample evenly spaced
             step = max(1, len(bimanual) // n)
             chosen = [bimanual[i * step] for i in range(n)]
         else:

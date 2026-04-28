@@ -505,7 +505,7 @@ def main():
 
     doc.add_heading('Surgical Instruments', level=2)
     items = [
-        'Needle drivers (x2) — e.g., Mayo-Hegar',
+        'Needle drivers (x2), e.g., Mayo-Hegar',
         'Tissue forceps (Adson with teeth)',
         'Metzenbaum scissors',
         'Suture scissors',
@@ -517,9 +517,9 @@ def main():
 
     doc.add_heading('Consumables', level=2)
     items = [
-        'Surgical training pads (e.g., Ethicon LPSE-1 or similar) — 2-3 per session',
+        'Surgical training pads (e.g., Ethicon LPSE-1 or similar), 2-3 per session',
         'Suture material: 3-0 and 4-0 Vicryl (or Prolene) on curved needle',
-        'Surgical gloves — white, known brand/size (Ansell Micro-Touch recommended)',
+        'Surgical gloves, white, known brand/size (Ansell Micro-Touch recommended)',
         'Extra gloves (multiple sizes for different surgeons)',
         'Drapes or towels for workspace setup',
     ]

@@ -5,3 +5,18 @@ checkpoints/**
 eval/results/**
 pov_surgery_data/**
 _DATA
+# generated viz outputs (regenerable from src/viz/)
+viz_*/
+**/.DS_Store
+.DS_Store
+
+# raw datasets — never committed
+data/pov_surgery/
+data/aria_val/
+data/phase0_sidecars/
+
+# results (eval JSONs + ensemble caches)
+results/*.json
+results/*.jsonl
+results/*.npz
+!results/.gitkeep

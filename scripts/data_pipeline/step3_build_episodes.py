@@ -71,7 +71,7 @@ def build_episode(window: dict, poses: dict) -> dict | None:
     # Check pose coverage
     missing = [fid for fid in frame_ids if fid not in poses]
     if len(missing) > T * 0.2:  # >20% missing → skip
-        print(f"  WARNING: {window['window_id']} — {len(missing)}/{T} frames missing poses, skipping")
+        print(f"  WARNING: {window['window_id']}, {len(missing)}/{T} frames missing poses, skipping")
         return None
 
     # --- Collect per-frame data ---
@@ -158,7 +158,7 @@ def build_episode(window: dict, poses: dict) -> dict | None:
         "anno_type": "right",
         "text": text,
 
-        # Trajectory statistics (placeholder — computed from actual data)
+        # Trajectory statistics (placeholder, computed from actual data)
         "avg_speed": np.float64(0.0),
         "total_rotvec_degree": np.float64(0.0),
         "total_transl_dist": np.float64(0.0),

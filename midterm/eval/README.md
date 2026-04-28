@@ -48,7 +48,7 @@ AIM_2_Project/checkpoints/HandOccNet_model_dump/
 └── DexYCB/snapshot_25.pth.tar     # pretrained on DexYCB
 ```
 
-**WiLoR**: No manual download needed — `wilor_mini` downloads checkpoints automatically on first run.
+**WiLoR**: No manual download needed, `wilor_mini` downloads checkpoints automatically on first run.
 
 ## Reproduction Steps
 

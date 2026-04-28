@@ -203,13 +203,13 @@ def extract_mano_from_outputs(outputs: list) -> list[dict]:
 
     WiLoR output structure per hand:
       wilor_preds:
-        global_orient: (1, 1, 3) — wrist rotation axis-angle
-        hand_pose: (1, 15, 3) — 15 joint rotations axis-angle
-        betas: (1, 10) — shape coefficients
-        pred_cam_t_full: (1, 3) — camera-space translation
-        pred_keypoints_3d: (1, 21, 3) — 3D keypoints
-        pred_keypoints_2d: (1, 21, 2) — 2D keypoints
-        pred_vertices: (1, 778, 3) — mesh vertices
+        global_orient: (1, 1, 3), wrist rotation axis-angle
+        hand_pose: (1, 15, 3), 15 joint rotations axis-angle
+        betas: (1, 10), shape coefficients
+        pred_cam_t_full: (1, 3), camera-space translation
+        pred_keypoints_3d: (1, 21, 3), 3D keypoints
+        pred_keypoints_2d: (1, 21, 2), 2D keypoints
+        pred_vertices: (1, 778, 3), mesh vertices
         scaled_focal_length: float
     """
     results = []
@@ -354,7 +354,7 @@ def process_frames(
                 is_rights = [float(b["is_right"]) for b in own_bboxes]
                 outputs = pipe.predict_with_bboxes(image, bboxes_xyxy, is_rights)
                 elapsed = time.time() - t0
-                print(f"  WiLoR crop-regress: {elapsed:.2f}s — {len(outputs)} own hand(s) from GT bboxes")
+                print(f"  WiLoR crop-regress: {elapsed:.2f}s, {len(outputs)} own hand(s) from GT bboxes")
         else:
             # Mode A: YOLO detect then filter
             outputs = pipe.predict(image)
@@ -365,9 +365,9 @@ def process_frames(
                 outputs = filter_to_own_hands(
                     outputs, ann_cache.get(video_id, {}), frame_id, iou_thresh
                 )
-                print(f"  WiLoR detect-filter: {elapsed:.2f}s — detected {n_raw}, kept {len(outputs)} own hand(s)")
+                print(f"  WiLoR detect-filter: {elapsed:.2f}s, detected {n_raw}, kept {len(outputs)} own hand(s)")
             else:
-                print(f"  WiLoR inference: {elapsed:.2f}s — detected {n_raw} hand(s)")
+                print(f"  WiLoR inference: {elapsed:.2f}s, detected {n_raw} hand(s)")
 
         if not outputs:
             print(f"  WARNING: No hands detected in {frame_id}")

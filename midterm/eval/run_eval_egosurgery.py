@@ -92,7 +92,7 @@ def sample_frames(windows_path, n_frames, annotations, min_bbox_area=5000, seed=
     """Sample diverse frames from bimanual windows, stratified by phase.
 
     Strategy:
-    - Equal phase representation (not proportional — incision is rare but interesting)
+    - Equal phase representation (not proportional, incision is rare but interesting)
     - 1 frame per window to avoid temporal redundancy
     - Diverse videos within each phase
     - Filter out frames with tiny bboxes (area < min_bbox_area)
@@ -352,7 +352,7 @@ def run_hamer_crop(model, model_cfg, image_bgr, bboxes_xyxy, is_rights, device):
 
         scaled_fl = model_cfg.EXTRA.FOCAL_LENGTH / model_cfg.MODEL.IMAGE_SIZE * max(img_w, img_h)
 
-        # Use box_size (not MODEL.IMAGE_SIZE) as the denominator — matches cam_crop_to_full
+        # Use box_size (not MODEL.IMAGE_SIZE) as the denominator, matches cam_crop_to_full
         bs = box_size * pred_cam[0] + 1e-9
         cam_t_full = np.array([
             (2 * (box_center[0] - img_w / 2) / bs) + pred_cam[1],
@@ -576,7 +576,7 @@ def main():
                 overlay_path = overlay_dir / f"{fid}_overlay.jpg"
                 cv2.imwrite(str(overlay_path), combined)
             else:
-                # Single model — save as-is
+                # Single model, save as-is
                 for mname, panel in model_overlays.items():
                     overlay_path = overlay_dir / f"{fid}_{mname}_overlay.jpg"
                     cv2.imwrite(str(overlay_path), panel)

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Evaluate HaMeR (off-the-shelf) on POV-Surgery frames.
 
-Uses GT-derived bounding boxes (crop-regress mode only — HaMeR has no built-in
+Uses GT-derived bounding boxes (crop-regress mode only, HaMeR has no built-in
 detector). Follows the same GT pipeline, metrics, and output format as
 run_eval_wilor.py for direct comparison.
 

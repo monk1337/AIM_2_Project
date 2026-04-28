@@ -1,6 +1,6 @@
 """
 Visualize model predictions in 256x256 crop space.
-Both HaMeR and HandOCCNet predict on 256x256 crops — this script
+Both HaMeR and HandOCCNet predict on 256x256 crops, this script
 shows GT vs pred 2D joints overlaid on the crop for direct comparison.
 
 For each sample, generates a 1x2 panel:

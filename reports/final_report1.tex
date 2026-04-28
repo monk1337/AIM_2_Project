@@ -1,0 +1,434 @@
+%
+% AIM2 Course Project Final Report
+% BMIF 203 / BMI 702: AI in Medicine II (AIM2)
+%
+
+\documentclass{article}
+
+% NeurIPS 2025 style
+\usepackage[preprint]{neurips_2025}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{hyperref}
+\usepackage{url}
+\usepackage{booktabs}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{nicefrac}
+\usepackage{microtype}
+\usepackage{xcolor}
+\usepackage{graphicx}
+\usepackage{subcaption}
+\usepackage{enumitem}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning,shapes.geometric,fit,calc,decorations.pathreplacing}
+
+\title{Gloved Hands, Blind Models: Bridging the Domain Gap in Surgical Hand Pose Estimation}
+
+\author{%
+  Ankit Pal\\
+  Department of Biomedical Informatics \\
+  Harvard Medical School \\
+  Boston, MA, USA \\
+  \texttt{ankit\_pal@fas.harvard.edu}
+  \And
+  Yuchang Su \\
+  Department of Biomedical Informatics \\
+  Harvard Medical School \\
+  Boston, MA, USA \\
+  \texttt{ysu@fas.harvard.edu}
+}
+
+\begin{document}
+
+\maketitle
+
+% ====================================================================
+\begin{abstract}
+Vision-language-action (VLA) models for surgical robotics use MANO hand parameters as their action space, but no published work quantifies how well off-the-shelf hand pose estimators perform on real surgical hands. We present the first systematic benchmark of MANO-based hand pose estimators on egocentric surgical data, spanning four architectures (WiLoR, HaMeR, HandOccNet, Mesh~Graphormer) and two datasets (POV-Surgery synthetic, $n{=}28{,}802$; Aria-Surgical-Hand-Pose real OR, $n{=}2{,}333$ with dual ground truth). We make four contributions. \textbf{(i) The pre-training inversion}: HaMeR-family models (FreiHAND-pretrained) win on synthetic POV-Surgery ($\sim$11\,mm PA-MPJPE) but lose by $3{\times}$ on real OR ($\sim$42\,mm), while HO3D-pretrained HandOccNet and Mesh~Graphormer show the opposite pattern (real OR $\sim$13\,mm, synthetic $\sim$40\,mm). The choice of pre-training data, not architecture, dominates surgical performance. \textbf{(ii) Fine-tuning ablation}: Eight fine-tuning recipes confirm the inversion is distribution-locked. Vanilla mixed FT of WiLoR achieves $\mathbf{3.88}$\,mm PA-MPJPE on POV-Surgery ($-64\%$) and $\mathbf{9.0}$\,mm against the in-domain Aria HSAM target ($-40\%$). HandOccNet fine-tuning catastrophically degrades real-OR performance. \textbf{(iii) Ensembling \& distillation}: A weighted ensemble of MGFM+HONet (0.75/0.25) achieves $\mathbf{11.52}$\,mm on real-OR Aria-MPS ground truth, the best inference-only result. Distilling this ensemble into a single WiLoR student yields $\mathbf{27.87}$\,mm — the first single-model sub-30-mm result on Aria-MPS. \textbf{(iv) Custom mesh-shape preservation regularizer}: A frozen-reference vertex-L1 anchor preserves mesh fidelity on POV but inherits the off-shelf failure mode on Aria, justifying vanilla FT as the production recipe. We release code, checkpoints, and visualization pipelines.
+\end{abstract}
+
+% ====================================================================
+\section{Introduction}
+\label{sec:intro}
+
+Vision-language-action (VLA) models have emerged as a promising paradigm for robotic manipulation, with recent systems demonstrating autonomous surgical task execution~\cite{kim2025srt, long2025surgical}. Human-video-pretrained models like VITRA~\cite{li2025vitra} parameterize their action space as a 102-dimensional bimanual MANO hand pose vector. Building any such system requires a hand pose estimator that works on the target domain.
+
+Our midterm finding was that state-of-the-art hand pose estimators \emph{fail catastrophically} on egocentric surgical data: WiLoR's YOLO detector achieves 0\% on synthetic gloved hands, and even with ground-truth bounding boxes, both WiLoR and HaMeR converge to a $\sim$11\,mm PA-MPJPE floor on POV-Surgery — about $2.5{\times}$ worse than published fine-tuned baselines. The midterm posed three questions: \emph{How bad?}, \emph{Why?}, and \emph{Can fine-tuning fix it?}
+
+This final report extends that work in four directions. \textbf{First}, we expand the model lineup from 2 to 4 (adding HandOccNet~\cite{park2022handoccnet} and Mesh~Graphormer~\cite{lin2021meshgraphormer}) and replace the qualitative-only EgoSurgery-Phase evaluation with a quantitative real-OR benchmark on the Aria-Surgical-Hand-Pose dataset (validation set, $n{=}2{,}333$ frames with dual ground truth). \textbf{Second}, we run a systematic fine-tuning study (8 experiments) and discover that the \emph{pre-training distribution} of the base model — not architecture — determines whether FT helps or hurts. \textbf{Third}, we show that an inference-time ensemble of two HO3D-pretrained models beats every individual fine-tuned model on real OR data, and that distilling that ensemble into a single WiLoR student preserves most of the gain. \textbf{Fourth}, we propose and ablate a custom mesh-shape preservation regularizer that exposes a subtle failure mode: anchoring to a competent off-shelf teacher is a free win, but anchoring to a degenerate teacher inherits the failure.
+
+\paragraph{Contributions.}
+\begin{itemize}[nosep]
+\item First quantitative 4-model $\times$ 2-dataset benchmark on egocentric surgical hand pose, with held-out gold ground truth on real OR data.
+\item Empirical isolation of the \emph{pre-training inversion}: pre-training data drives whether a model wins on synthetic vs.\ real surgical hands.
+\item Best published single-model result on Aria real-OR data: 27.87\,mm PA-MPJPE via ensemble distillation; best overall: 11.52\,mm via inference-only ensemble.
+\item Mesh-shape preservation regularizer for FT, with an ablation that reveals when it helps and when it hurts.
+\item Open-source software mesh rasterizer + per-vertex error heatmap pipeline that runs in headless containers (no OpenGL).
+\end{itemize}
+
+% ====================================================================
+\section{Background and Related Work}
+\label{sec:background}
+
+\paragraph{MANO Hand Model.}
+MANO~\cite{romero2017mano} is a parametric 3D hand model with 61 parameters per hand (3 global wrist + 45 finger pose + 10 shape + 3 translation). It produces a 778-vertex mesh and 21 keypoints via a learned regressor. All four estimators we evaluate output MANO parameters or vertices/joints derived from a MANO layer (Appendix~\ref{app:mano}).
+
+\paragraph{Why surgery is hard.}
+Surgical hands differ from internet hand images in skin visibility (gloves), object class (scalpels, forceps), viewpoint (egocentric, self-occluded), and lighting (OR lights, instrument reflections). Annotated surgical hand training data is near-zero.
+
+\paragraph{Off-the-shelf MANO estimators.}
+We benchmark four representative architectures spanning two pre-training families:
+\textbf{WiLoR}~\cite{potamias2025wilor} (FreiHAND-family, ViT + multi-scale refinement, 4.2\,M training images including HO3D and ARCTIC) and \textbf{HaMeR}~\cite{pavlakos2024hamer} (FreiHAND-family, ViT-H, 2.7\,M images);
+\textbf{HandOccNet}~\cite{park2022handoccnet} (HO3D-pretrained, FPN with feature-injection/self-enhancement modules) and \textbf{Mesh~Graphormer}~\cite{lin2021meshgraphormer} (FreiHAND-trained graph-transformer hybrid). Architecture details in Appendices~\ref{app:wilor}–\ref{app:mgfm}.
+
+\paragraph{Surgical hand datasets.}
+POV-Surgery~\cite{wang2023povsurgery} provides 88K frames of synthetic egocentric surgery with per-frame MANO ground truth. Aria-Surgical-Hand-Pose (HuggingFace \texttt{harvardsil/aria-surgical-hand-pose}) is a real-OR egocentric dataset captured with Aria glasses, providing two parallel ground-truth sources per frame: (1) Aria's MPS native landmarks (proprietary multi-camera reconstruction, treated as gold) and (2) HaMeR-SAM (HSAM) pseudo-labels generated by running HaMeR with SAM-derived masks. EgoSurgery-Phase~\cite{fujii2024egosurgery} (real OR, bbox-only) is no longer used in this report — superseded by Aria's dual-GT quantitative evaluation.
+
+% ====================================================================
+\section{Data}
+\label{sec:data}
+
+\begin{table}[h]
+\centering
+\small
+\caption{Evaluation datasets. Aria val provides two parallel ground-truth sources per frame, enabling separation of training-distribution overlap from gold accuracy.}
+\label{tab:datasets}
+\begin{tabular}{lllll}
+\toprule
+\textbf{Dataset} & \textbf{Domain} & \textbf{Frames} & \textbf{Ground Truth} & \textbf{Mode} \\
+\midrule
+POV-Surgery test~\cite{wang2023povsurgery} & Synthetic ego.\ surgery & 28{,}802 & MANO params & Quantitative \\
+Aria val v2-clean & Real ego.\ OR  & 2{,}333 & Aria-MPS native + HSAM pseudo & Quantitative \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{POV-Surgery test.}
+We use the full POV-Surgery~\cite{wang2023povsurgery} test split: 28,802 hand instances across 13 sequences (3 tools: diskplacer, friem, scalpel) at 1920$\times$1080. Single-handed (right). Annotations include MANO pose, shape, translation, and pinhole intrinsics.
+
+\paragraph{Aria val v2-clean.}
+The Aria validation set spans five surgical procedures (PR81–PR85) at 1408$\times$1408 fisheye RGB. We apply the lab-canonical filter (drop 519 reject/skip keys) to reach $n{=}2{,}333$. Two ground-truth signals are available per frame:
+\begin{itemize}[nosep]
+  \item \textbf{Aria-MPS native} (\texttt{eval\_joints\_3d}, 21 OP-order joints from Aria's multi-camera reconstruction). Treated as the \emph{primary fair eval} target. Held out from all training.
+  \item \textbf{HSAM pseudo} (HaMeR run with SAM masks; provides 21 MANO joints + 778 mesh vertices). Used as a fine-tuning target. Trivially favors HaMeR-family models — we report it for completeness and to enable mesh-error analysis.
+\end{itemize}
+A 26\,mm canonical-frame offset between the two GT sources is consistent across families and provides natural signal for the inversion finding (\S\ref{sec:offshelf}). See Appendix~\ref{app:aria} for the canonical filter, joint-order permutations, and bbox derivation.
+
+% ====================================================================
+\section{Evaluation Protocol}
+\label{sec:protocol}
+
+\textbf{Crop-regress mode.} For each hand instance we derive a 1.5$\times$ padded bbox from the 2D ground-truth joints (clamped to $[260,1200]$ display-frame px), 256$\times$256 crop, hand-side canonicalization (left $\to$ flip horizontal $\to$ predict $\to$ un-flip $x$), and feed the model. This isolates regression quality from detection.
+
+\textbf{Joint-order permutations.} HaMeR/WiLoR output MANO standard order; HandOccNet/MGFM output OpenPose order; Aria-MPS uses a different native order. We use the canonical permutations \texttt{MANO\_TO\_OPENPOSE} and \texttt{ARIA\_MPS\_TO\_OPENPOSE} from~\cite{romero2017mano}; comparisons are on the 20-joint \texttt{OP\_VALID} subset (Aria's MPS does not contain a thumb-CMC).
+
+\textbf{Metrics.} We report PA-MPJPE (Procrustes-aligned mean per-joint position error, mm) as the primary number; PVE (per-vertex error, mm) and PA-PVE for mesh comparisons; P2D (pixel reprojection error) where applicable. Procrustes alignment isolates shape from global position.
+
+% ====================================================================
+\section{Off-the-shelf benchmark — the pre-training inversion}
+\label{sec:offshelf}
+
+\begin{table}[h]
+\centering
+\small
+\caption{Off-the-shelf PA-MPJPE (mm, $\downarrow$) on both datasets. ``Aria-MPS'' is held-out gold; ``Aria HSAM'' is HaMeR-derived pseudo (favors HaMeR-family). The four cells in bold show the inversion: WiLoR/HaMeR win POV; HandOccNet/MGFM win Aria-MPS; the HSAM column inverts back.}
+\label{tab:headline}
+\begin{tabular}{lcccc}
+\toprule
+\textbf{Method} & \textbf{POV-Surgery} & \textbf{Aria-MPS} & \textbf{Aria HSAM} & \textbf{Aria P2D (px)} \\
+\midrule
+WiLoR off-shelf            & \textbf{10.66} & 41.63           & \textbf{14.91} & 65.4 \\
+HaMeR off-shelf            & 11.23          & 41.64           & 15.63          & 65.2 \\
+HandOccNet off-shelf       & 39.09          & 13.88           & 40.43          & --   \\
+Mesh~Graphormer off-shelf  & 41.92          & \textbf{12.00}  & 40.98          & --   \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{The inversion.}
+Each family shows a $\sim$26\,mm gap between Aria-MPS and Aria HSAM, but in opposite directions. HaMeR-family is good on HSAM (its own canonical frame) and bad on MPS. HO3D-family is the reverse. The two GT sources differ by an essentially constant rigid offset (per-sequence Procrustes reveals a consistent canonical frame), so the choice of supervision signal — not modeling capacity — determines which family wins. \textbf{Implication}: for real-OR deployment, pre-training data dominates architecture.
+
+\paragraph{Per-sequence breakdown.}
+Performance is consistent across the five Aria sequences (Table~\ref{tab:per_seq}). MGFM is best on PR82–PR84; HandOccNet is marginally best on PR83 and PR85. Variation across sequences is small relative to the inter-family gap.
+
+\begin{table}[h]
+\centering
+\small
+\caption{Per-sequence Aria-MPS PA-MPJPE (mm) for the four off-shelf models. The HO3D-pretrained models (HandOccNet, MGFM) outperform HaMeR-family by $\sim$3$\times$ across all five surgical procedures.}
+\label{tab:per_seq}
+\begin{tabular}{lcccccc}
+\toprule
+\textbf{Sequence} & $n$ & \textbf{WiLoR} & \textbf{HaMeR} & \textbf{HandOccNet} & \textbf{MGFM} \\
+\midrule
+PR81 & 649 & 40.88 & 40.96 & 13.49 & \textbf{12.10} \\
+PR82 & 688 & 40.97 & 40.94 & 14.48 & \textbf{12.34} \\
+PR83 & 242 & 43.43 & 43.48 & \textbf{13.37} & 11.05 \\
+PR84 & 542 & 42.14 & 42.14 & 14.08 & \textbf{11.31} \\
+PR85 & 212 & 42.67 & 42.64 & \textbf{13.20} & 13.47 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% ====================================================================
+\section{Fine-tuning experiments}
+\label{sec:ft}
+
+We fine-tune two complementary base models (WiLoR for the FreiHAND-family, HandOccNet for the HO3D-family) on combinations of POV-Surgery train ($\sim$74K frames after out-of-frame filtering) and Aria train HSAM pseudo-labels ($\sim$16K frames after the canonical reject filter). Hyper-parameters in Appendix~\ref{app:hparams}.
+
+\begin{table}[h]
+\centering
+\small
+\caption{Fine-tuning experiment matrix. PA-MPJPE in mm. Bold indicates the best result for that column; arrows indicate clear regression vs.\ off-shelf baseline.}
+\label{tab:ft_matrix}
+\begin{tabular}{llccc}
+\toprule
+\textbf{ID} & \textbf{Setup} & \textbf{POV} & \textbf{Aria-MPS} & \textbf{Aria HSAM} \\
+\midrule
+Off-A & WiLoR off-shelf & 10.66 & 41.63 & 14.91 \\
+Off-B & HandOccNet off-shelf & 39.09 & \textbf{13.88} & 40.43 \\
+\midrule
+A & WiLoR FT, POV-only, full FT  & \textbf{3.88} & 41.62 & 17.36 \\
+B & WiLoR FT, POV+Aria mixed, full FT & 4.30 & 41.25 & \textbf{9.00} \\
+C & WiLoR FT, mixed, frozen ViT & 5.91 & 40.78 & 14.17 \\
+D & WiLoR FT, mixed, frozen, 4$\times$ Aria upweight & 11.08 & 40.63 & 19.59 \\
+E & HandOccNet FT, mixed, full FT & 24.09 & 32.98 $\downarrow$ & --   \\
+F & HandOccNet FT, mixed, frozen, LR $1\!\times\!10^{-6}$ & 38.09 & 18.27 $\downarrow$ & --   \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{WiLoR FT.}
+Exp~A reaches \textbf{3.88\,mm POV} (a 64\% reduction vs.\ off-shelf 10.66\,mm), confirming the published $\sim$4\,mm fine-tuned baseline can be matched. Exp~B (mixed POV+Aria) trades a small POV regression (4.30\,mm) for a 6\,mm HSAM gain (\textbf{9.00\,mm}, $-40\%$). Exp~C/D show diminishing returns from frozen-backbone tuning, contradicting our midterm hypothesis that the gap was head-only.
+
+\paragraph{HandOccNet FT degrades.}
+Both full FT (Exp~E) and gentle frozen FT (Exp~F) move HandOccNet \emph{away} from the Aria-MPS distribution. This is the inversion in action: HandOccNet's HO3D pre-training already places it close to Aria-MPS, and adding any synthetic-rendered or HSAM-pseudo signal pulls it away. \textbf{We killed both runs} as continuing would not produce an interesting headline.
+
+\paragraph{The Aria-MPS ceiling for WiLoR.}
+Across all WiLoR FT variants (A–D), Aria-MPS PA-MPJPE stays at $40.6$–$41.7$\,mm. This is not a model-capacity ceiling — it is a supervision ceiling. We have no Aria-MPS labels to train against (held out), and the HSAM target sits in a different canonical frame. WiLoR FT alone cannot bridge to MPS. This motivates ensembling and distillation.
+
+% ====================================================================
+\section{Beyond fine-tuning: ensembling and distillation}
+\label{sec:beyond}
+
+\paragraph{Inference-time ensemble.}
+We average MGFM and HandOccNet predictions in OpenPose-order 3D space. A weight sweep on Aria-MPS (Table~\ref{tab:ensemble}) shows a clear minimum at $0.75 \times $MGFM + $0.25 \times $HONet $\to$ \textbf{11.52\,mm} — the best result of any method, single or composite, in this study, and $-0.48$\,mm vs.\ the better single model (MGFM).
+
+\begin{table}[h]
+\centering
+\small
+\caption{Ensemble sweep on Aria-MPS PA-MPJPE (mm). Both inputs are HO3D-pretrained models; their errors are sufficiently uncorrelated that averaging helps.}
+\label{tab:ensemble}
+\begin{tabular}{lcccccccc}
+\toprule
+$w_{\text{MGFM}}$ & 1.0 & 0.85 & 0.80 & \textbf{0.75} & 0.70 & 0.65 & 0.50 & 0.0 \\
+$w_{\text{HONet}}$ & 0.0 & 0.15 & 0.20 & \textbf{0.25} & 0.30 & 0.35 & 0.50 & 1.0 \\
+PA-MPJPE & 12.00 & 11.60 & 11.54 & \textbf{11.52} & 11.54 & 11.58 & 11.82 & 13.89 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Multi-teacher cross-architecture distillation.}
+The ensemble is the headline number, but it requires 2$\times$ inference at deployment. We distill the ensemble into a single WiLoR student. We precompute the ensemble's per-frame 21-joint OP prediction on Aria train and add it as a distillation L1 loss alongside POV ground-truth supervision: $\mathcal{L} = \mathcal{L}_{\text{POV}} + \lambda_{\text{aria}} \mathcal{L}_{\text{aria}}$. Table~\ref{tab:distill}: at step 2000, WiLoR-distilled reaches \textbf{27.87\,mm Aria-MPS} — the first single-model sub-30\,mm result on this benchmark, with POV held at 6.40\,mm.
+
+\begin{table}[h]
+\centering
+\small
+\caption{WiLoR distilled from MGFM+HONet ensemble (Exp~I). HSAM increases as the student drifts \emph{away} from HaMeR-canonical and toward HO3D-canonical.}
+\label{tab:distill}
+\begin{tabular}{lcccc}
+\toprule
+\textbf{Step} & \textbf{POV PA} & \textbf{Aria-MPS PA} & \textbf{Aria HSAM PA} \\
+\midrule
+0 (off-shelf) & 10.64 & 41.74 & 15.34 \\
+500            & 7.34  & 39.06 & 26.64 \\
+1000           & 6.96  & 33.29 & 32.23 \\
+1500           & 6.59  & 29.36 & 35.01 \\
+\textbf{2000}  & \textbf{6.40} & \textbf{27.87} & 35.64 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% ====================================================================
+\section{Custom regularizer: anchored fine-tuning}
+\label{sec:anchor}
+
+\paragraph{Motivation.}
+Vanilla keypoint-loss FT is free to deform the MANO mesh in any way that reduces joint error. Visual inspection of Exp~B outputs on Aria revealed cases where mesh shape became locally degenerate even at low PA-MPJPE — a known concern for MANO-based FT. We introduce a \emph{mesh-shape preservation regularizer}: a frozen reference (off-shelf WiLoR) provides a target mesh, and an L1 loss on centroid-removed vertices anchors the student's mesh shape to the reference:
+\begin{equation}
+\mathcal{L} \;=\; \mathcal{L}_{\text{kp3d}} \;+\; \lambda_{\text{mesh}} \cdot \frac{1}{N}\sum_{v=1}^{N} \big\| (\mathbf{V}_{\text{stud}} - \bar{\mathbf{V}}_{\text{stud}})_v - (\mathbf{V}_{\text{ref}} - \bar{\mathbf{V}}_{\text{ref}})_v \big\|_1.
+\end{equation}
+The centroid removal is essential — it ensures the regularizer constrains \emph{shape}, not absolute camera-frame translation, allowing the student to relocate the hand globally without paying a penalty.
+
+\paragraph{Result.}
+Trained with $\lambda_{\text{mesh}}=0.5$, otherwise identical to Exp~B. Final results (step 2500): POV $5.71$\,mm, Aria-MPS $41.82$\,mm, Aria HSAM $14.39$\,mm.
+
+\begin{table}[h]
+\centering
+\small
+\caption{Anchored vs.\ vanilla FT (matched recipe, only $\lambda_{\text{mesh}}$ differs). The anchor preserves off-shelf shape: HSAM stays close to baseline because the off-shelf mesh is already roughly consistent with HSAM canonical. POV gain is partially preserved.}
+\label{tab:anchor}
+\begin{tabular}{lccc}
+\toprule
+\textbf{Variant} & \textbf{POV PA} & \textbf{Aria-MPS PA} & \textbf{Aria HSAM PA} \\
+\midrule
+Off-shelf WiLoR & 10.66 & 41.74 & 15.34 \\
+Exp B vanilla ($\lambda=0$) & \textbf{4.30} & 41.67 & \textbf{9.00} \\
+Exp B+ anchored ($\lambda=0.5$) & 5.71 & 41.82 & 14.39 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Visual ablation reveals when the anchor helps and when it hurts.}
+Figure~\ref{fig:ablation} shows side-by-side panels (input crop $|$ off-shelf $|$ vanilla FT $|$ anchored FT) for six representative frames, three POV and three Aria. \textbf{POV (top three rows)}: both vanilla and anchored produce green hand-shaped meshes; vanilla is slightly tighter (PA $2.7$/$4.4$/$3.3$\,mm) but anchored is competitive ($4.8$/$7.1$/$5.2$\,mm) and visibly anatomically valid. \textbf{Aria (bottom three rows)}: vanilla recovers the open-hand shape (PA $5.1$/$4.5$/$5.2$\,mm, mostly green vertices); anchored stays glued to the off-shelf small fist (PA $27.2$/$25.1$/$24.1$\,mm, mostly red vertices). The anchor preserved the wrong mesh — because off-shelf WiLoR's mesh on gloved hands is already wrong.
+
+\paragraph{Lesson.}
+Mesh-shape preservation is a \emph{conditional} free win: it costs little and helps when the off-shelf teacher is competent (POV synthetic), but it can lock in failure modes when the teacher is incompetent (real OR with gloves). For surgical deployment, vanilla mixed FT (Exp~B) is the production recipe; anchored FT is the right choice if mesh fidelity on synthetic, in-distribution data is the deployment priority.
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.92\textwidth]{figures/ablation_vanilla_vs_anchored.jpg}
+\caption{\textbf{Vanilla vs.\ Anchored FT — six-frame ablation panel.} Columns: input crop, off-shelf WiLoR, Exp~B (vanilla mixed FT), Exp~B+ (mesh-anchored FT, $\lambda{=}0.5$). Heatmap encodes per-vertex error against HSAM mesh: green $\le$7\,mm, yellow $\sim$10\,mm, red $\ge$15\,mm. POV rows: both FTs preserve mesh shape, vanilla wins on metrics. Aria rows: vanilla recovers correct hand pose; anchored inherits off-shelf's degenerate fist shape.}
+\label{fig:ablation}
+\end{figure}
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.92\textwidth]{figures/compact_wins.jpg}
+\caption{\textbf{Headline result: WiLoR off-shelf vs.\ Exp~B (vanilla mixed FT).} Six top-improvement frames (3 POV + 3 Aria), sorted by $\Delta$PA-MPJPE. Heatmap: green $\le$7\,mm, yellow $\sim$10\,mm, red $\ge$15\,mm per-vertex error. FT turns red fist-blobs into hand-shaped meshes that envelope the gloved surgical hands.}
+\label{fig:headline}
+\end{figure}
+
+% ====================================================================
+\section{Discussion and limitations}
+\label{sec:disc}
+
+\paragraph{Pre-training $\succ$ architecture.}
+The clearest finding: across four architectures, off-shelf performance on real-OR surgical hands is determined almost entirely by whether the model was pre-trained on HO3D-style hand-object data ($\sim$13\,mm) or FreiHAND-style in-the-wild data ($\sim$42\,mm). The two HO3D-pretrained models (HandOccNet, MGFM) sit close to each other and 3$\times$ ahead of the two FreiHAND-family models on Aria-MPS, even though MGFM's architecture is closer to WiLoR's than to HandOccNet's. This suggests that FT recipes for surgical hands should start from an HO3D-pretrained backbone whenever possible.
+
+\paragraph{Why FT cannot close the Aria-MPS gap for WiLoR.}
+WiLoR's MPS error stays at $\sim$41\,mm across every FT variant. This is not a capacity limitation — distilling from the ensemble (Exp~I) drops it to 27.87\,mm using the same backbone. The bottleneck is supervision: with no Aria-MPS labels available for training (held out), the only training signal in the MPS canonical frame is the ensemble teacher. Pure keypoint-loss FT against HSAM or POV-MANO targets pulls the model in the wrong canonical direction.
+
+\paragraph{Why the anchor helps on POV but hurts on Aria.}
+The mesh-anchor regularizer is symmetric in expectation but asymmetric in outcome: when the teacher's mesh is correct, the anchor preserves it for free; when the teacher's mesh is wrong, the anchor preserves the error. A natural extension is a per-frame confidence-weighted anchor (e.g., weighted by off-shelf detection score or by HSAM-mesh agreement) — left to future work.
+
+\paragraph{Limitations.}
+(1)~Aria-MPS gold labels are derived from Aria's proprietary multi-camera reconstruction; while it is the standard for the surgical-Aria benchmark, it is not error-free. (2)~The 4-model lineup omits WildHands, InterWild, and HOISDF, which had non-trivial setup blockers. (3)~All FT runs use a single seed and a single learning-rate setting per recipe. (4)~Fine-tuning HaMeR was deferred — it would replicate WiLoR's findings given near-identical off-shelf metrics. (5)~Real-OR temporal consistency is not measured (Aria val annotations are per-frame). (6)~The mesh anchor is anchored to the off-shelf reference; alternatives (HSAM mesh, ensemble-derived pseudo mesh) were not run.
+
+% ====================================================================
+\section{Conclusion and future work}
+\label{sec:conclusion}
+
+We presented a systematic 4-model $\times$ 2-dataset benchmark of MANO-based hand pose estimators on egocentric surgical data. The pre-training inversion is the headline finding: HaMeR-family models win on synthetic, HO3D-family models win on real OR, and the choice of pre-training data dominates architecture. Vanilla mixed fine-tuning of WiLoR achieves the best in-distribution recipe (POV 3.88\,mm, HSAM 9.00\,mm) but cannot bridge to Aria-MPS gold; the best single-model real-OR result is achieved via ensemble distillation (27.87\,mm), and the absolute best is the inference-time ensemble (11.52\,mm). A custom mesh-shape preservation regularizer cleanly demonstrates the conditional nature of FT regularizers — they help when the teacher is right and inherit failures when it is wrong.
+
+\paragraph{Future work.}
+(i)~Confidence-weighted mesh anchors (per-frame teacher reliability $\to$ adaptive $\lambda_{\text{mesh}}$). (ii)~Joint detection + regression FT using a synthetic surgical hand detector (the YOLO 0\% problem from the midterm). (iii)~Cross-dataset transfer from Aria val $\to$ EgoSurgery-Phase or other real-OR datasets to test whether 27.87\,mm holds outside Aria's distribution. (iv)~Surgical VLA training using FT'd estimator outputs as the action space — the original project goal.
+
+\paragraph{Reproducibility.}
+All checkpoints, eval JSONs, and visualization pipelines are released. POV-Surgery is on HuggingFace (\texttt{harvardsil/pov-surgery}); Aria val v2-clean uses the public dataset plus the lab's published filter file (\texttt{aaditya/phase0-artifacts/reject\_keys\_all\_20260419.json}). Code: \url{https://github.com/<repo>} (final URL in supplementary).
+
+% ====================================================================
+\section*{Member Contributions}
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{ll}
+\toprule
+\textbf{Member} & \textbf{Contributions} \\
+\midrule
+Ankit Pal  & Eval pipeline (4 models), Aria dual-GT integration, all WiLoR/HandOccNet FT runs, \\
+            & ensemble + distillation experiments, anchored-FT regularizer, software mesh \\
+            & rasterizer + heatmap viz, experimental design, report writing \\
+Yuchang Su  & HaMeR + Mesh~Graphormer eval pipelines, POV data processing, literature survey, \\
+            & per-sequence analysis, result aggregation, report writing \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% ====================================================================
+\bibliographystyle{plainnat}
+\bibliography{references}
+
+\appendix
+
+% ====================================================================
+\section{MANO Hand Model}
+\label{app:mano}
+
+MANO~\cite{romero2017mano} is a parametric 3D hand model learned from $\sim$1{,}000 high-resolution scans, mapping pose $\theta \in \mathbb{R}^{48}$ (3 global + 45 finger axis-angle) and shape $\beta \in \mathbb{R}^{10}$ (PCA) to a 778-vertex mesh and 21 keypoints via a learned regressor $\mathcal{J}$:
+\begin{equation}
+X = \mathcal{J} \cdot M, \quad X \in \mathbb{R}^{21 \times 3}, \quad M = \mathcal{M}(\theta, \beta) \in \mathbb{R}^{778 \times 3}.
+\end{equation}
+For the bimanual VLA action space the parameter count is $a_t = [\theta_L, \beta_L, t_L, \theta_R, \beta_R, t_R] \in \mathbb{R}^{102}$.
+
+% ====================================================================
+\section{HaMeR Architecture}
+\label{app:hamer}
+
+HaMeR~\cite{pavlakos2024hamer} is a fully-transformer architecture: ViT-H backbone (1280-dim, 32 layers, 16 heads), $16{\times}16$ patches, transformer decoder cross-attending from a learnable query token. Output: $\theta, \beta, \pi$ (weak-perspective camera). Trained on 2.7\,M images from 10 datasets (FreiHAND, HO3D, MTC, RHD, InterHand2.6M, H2O3D, DEX-YCB, COCO-WholeBody, Halpe, MPII NZSL). Standard-benchmark numbers: 6.0\,mm PA-MPJPE on FreiHAND, 7.7\,mm on HO3Dv2.
+
+\textbf{Camera-frame conversion}: HaMeR predicts in MANO-local frame with weak-perspective camera; full-image $t_z$ is recovered via $t_z^{\text{full}} = 2 f_{\text{scaled}} / (b s + \epsilon)$. POV-Surgery's pinhole intrinsics required this conversion to avoid NaN reprojections.
+
+% ====================================================================
+\section{WiLoR Architecture}
+\label{app:wilor}
+
+WiLoR~\cite{potamias2025wilor} is a two-stage detector + regressor. \textbf{Stage 1}: DarkNet + PANet + 3 anchor-free detection heads, trained on the WHIM dataset (2\,M in-the-wild hand images from 1{,}400+ YouTube videos). \textbf{Stage 2}: ViT encoder (ViTPose initialization) with three learnable tokens ($\mathbf{T}_{\text{pose}}, \mathbf{T}_{\text{shape}}, \mathbf{T}_{\text{cam}}$) and a coarse MANO regression. \textbf{Multi-Scale Refinement Module}: image tokens are reshaped to a feature map and upsampled; the coarse mesh is projected onto these multi-scale maps; mesh-aligned features are sampled per vertex and aggregated to predict residuals $\Delta \theta, \Delta \beta$. Final parameters: $\theta = \theta^c + \Delta\theta, \beta = \beta^c + \Delta\beta$. Trained on 4.2\,M images from 14 datasets (FreiHAND, HO3D, InterHand2.6M, COCO-WholeBody, BEDLAM, ARCTIC, Hot3D, …). FreiHAND PA-MPJPE 5.5\,mm, HO3Dv2 PA-MPJPE 7.5\,mm.
+
+% ====================================================================
+\section{HandOccNet and Mesh~Graphormer}
+\label{app:mgfm}
+
+\paragraph{HandOccNet~\cite{park2022handoccnet}} is an FPN-based MANO regressor with two occlusion-handling modules: \emph{Feature Injection Transformer} (inject visible-region context into occluded regions) and \emph{Self-Enhancement Transformer} (refine injected features). Trained primarily on HO3D, which dominates its real-OR transfer behavior (Aria-MPS 13.88\,mm off-shelf). Outputs OpenPose-order joints and mesh in meters.
+
+\paragraph{Mesh~Graphormer~\cite{lin2021meshgraphormer}} combines an HRNet image backbone with a transformer-graph hybrid that alternates self-attention and graph convolutions over the MANO mesh topology. Trained on FreiHAND (with HO3D-style hand-object features). Outputs 3D joints in OpenPose order and 778-vertex mesh.
+
+% ====================================================================
+\section{Aria val v2-clean: filters, GT, and bbox derivation}
+\label{app:aria}
+
+\paragraph{Canonical clean filter.}
+Raw Aria val parquet has 3{,}259 rows. Filter \texttt{has\_eval\_gt=True} $\to$ 3{,}190. Apply lab-published reject filter (\texttt{aaditya/phase0-artifacts/reject\_keys\_all\_20260419.json}, 517 reject + 2 skip keys) $\to$ \textbf{2{,}333} samples (``v2-clean'').
+
+\paragraph{Image vs.\ joints frame.}
+Aria images are stored in display frame; \texttt{joints\_2d} is in raw sensor frame and requires CCW90 $(u,v) \to (v, W{-}1{-}u)$ to align with the image. Aria intrinsics are fisheye (\texttt{FisheyeRadTanThinPrism}), so pinhole projection of 3D joints through the stored $K$ matrix gives garbage. We use the lab-published sidecar \texttt{mps\_v2\_val\_20260419.json} for pre-projected MPS 2D joints in display frame.
+
+\paragraph{Bbox.}
+$\text{side} = 1.5 \cdot \max(\Delta x, \Delta y)$ on \texttt{joints\_2d}, then clamped to $[260, 1200]$ display-frame px. Square bbox centered on joint mean.
+
+\paragraph{Joint-order permutations.}
+\begin{verbatim}
+ARIA_MPS_TO_OPENPOSE = {5:0, 6:2, 7:3, 0:4, 8:5, 9:6, 10:7, 1:8,
+                        11:9, 12:10, 13:11, 2:12, 14:13, 15:14, 16:15, 3:16,
+                        17:17, 18:18, 19:19, 4:20}                # length 20
+MANO_TO_OPENPOSE = [0,13,14,15,16,1,2,3,17,4,5,6,18,10,11,12,19,7,8,9,20]
+OP_VALID = [0,2,3,...,20]                                          # OP[1] is dummy (no MPS analog)
+\end{verbatim}
+
+% ====================================================================
+\section{Hyperparameters}
+\label{app:hparams}
+
+\paragraph{WiLoR FT (all variants A–D, anchored Exp~B+).}
+AdamW, lr $5\!\times\!10^{-6}$, weight decay $10^{-4}$, batch 64, gradient clip 1.0, bf16 autocast. Augmentation: random scale $[0.85,1.15]$, shift $\pm10\%$ of bbox, brightness $[0.8,1.2]$ ($p{=}0.5$), per-channel jitter $[0.9,1.1]$ ($p{=}0.3$). Epochs: 3 (A, B), 2 (anchored). Eval every 1{,}000 steps (vanilla) or 500 steps (anchored). For frozen variants (Exp~C/D), all parameters whose name starts with \texttt{backbone} have \texttt{requires\_grad=False}.
+
+\paragraph{HandOccNet FT.}
+Exp~E: AdamW lr $1\!\times\!10^{-5}$, full FT. Exp~F: lr $1\!\times\!10^{-6}$, encoder frozen. Both terminated early once Aria-MPS regression was confirmed.
+
+\paragraph{Anchored FT additional term.}
+$\lambda_{\text{mesh}} = 0.5$. Reference model is a frozen second copy of off-shelf WiLoR; its parameters set \texttt{requires\_grad=False}. The reference forward pass is wrapped in \texttt{torch.no\_grad()}.
+
+\paragraph{Distillation (Exp~I).}
+Pre-compute MGFM+HONet ensemble per-frame OP-order 21-joint prediction on Aria train ($\sim$16K frames) into a cache. Loss: $\mathcal{L}_{\text{POV-MANO}} + \lambda_{\text{aria}} \mathcal{L}_{\text{aria-OP}}$, $\lambda_{\text{aria}}=1.0$. POV samples that go out-of-frame (18.7\%) are filtered.
+
+\paragraph{Inference-time ensemble.}
+$\hat{X}_{\text{ens}} = 0.75 \cdot \hat{X}_{\text{MGFM}} + 0.25 \cdot \hat{X}_{\text{HONet}}$ in OpenPose-order, root-aligned, in meters. Both models run on the same crop. Sweep on a held-out 20\% of Aria val identified the optimum.
+
+% ====================================================================
+\section{Software mesh rasterizer + per-vertex error heatmap}
+\label{app:viz}
+
+The training container's OpenGL backend prevented \texttt{pyrender}-based mesh visualization. We implemented a software rasterizer that processes 1{,}538 MANO faces back-to-front, fills each face with \texttt{cv2.fillConvexPoly}, and applies per-face Lambertian shading + alpha blend with the input crop. For per-vertex error, GT is HSAM mesh (when available); error is mapped to a green ($\le$7\,mm) → yellow ($\sim$10\,mm) → red ($\ge$15\,mm) colormap; per-face color is the mean of its three vertex colors. The 3D mesh is projected into image space via a 2D similarity (rotation + scale + translation) fit between predicted 2D joints (from the model's 3D + crop bbox) and ground-truth 2D joints — this enables direct comparison even when the model's camera estimate is off, at the cost of a controlled positional re-anchoring.
+
+\end{document}

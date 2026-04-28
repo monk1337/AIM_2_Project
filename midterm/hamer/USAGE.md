@@ -81,7 +81,7 @@ pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128
 # install the exact versions it requests, e.g.:
 # pip install "nvidia-cublas-cu12==12.8.4.1" "nvidia-cuda-cupti-cu12==12.8.90" ...
 
-# Install HaMeR (skip mmcv/vitpose — not needed when using GT bounding boxes)
+# Install HaMeR (skip mmcv/vitpose, not needed when using GT bounding boxes)
 cd hamer
 pip install -e .
 
@@ -108,7 +108,7 @@ DATA_DIR=POV_Surgery_data
 
 ### Step 1: Precompute Ground Truth (One-Time)
 
-Computes GT 3D joints (21 joints) and vertices (778 vertices) from MANO annotations and caches to disk. This is **model-independent** and only needs to run once — the cache is reused across different models.
+Computes GT 3D joints (21 joints) and vertices (778 vertices) from MANO annotations and caches to disk. This is **model-independent** and only needs to run once, the cache is reused across different models.
 
 ```bash
 python evaluate_hamer.py --data_dir $DATA_DIR --precompute_gt
@@ -257,8 +257,8 @@ K = [[1198.4395,    0,    960.0],
 ### HandOCCNet Checkpoints
 
 Downloaded from the [original repo](https://github.com/namepllet/HandOccNet):
-- `checkpoints/HandOccNet_model_dump/HO3D/snapshot_80.pth.tar` — pretrained on HO3D (zero-shot)
-- `checkpoints/HandOccNet_model_dump/DexYCB/snapshot_25.pth.tar` — pretrained on DexYCB
+- `checkpoints/HandOccNet_model_dump/HO3D/snapshot_80.pth.tar`, pretrained on HO3D (zero-shot)
+- `checkpoints/HandOccNet_model_dump/DexYCB/snapshot_25.pth.tar`, pretrained on DexYCB
 
 No finetuned POV-Surgery checkpoint is publicly available. To finetune, use the code in `POV_Surgery/HandOccNet_ft/` with `snapshot_80.pth.tar` as initialization.
 
