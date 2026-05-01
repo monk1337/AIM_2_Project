@@ -130,6 +130,7 @@ Every row in the headline table maps to one or two `Makefile` targets.
 | Off-shelf benchmark                             | `eval-{wilor,hamer,handoccnet,mgfm}-{pov,aria}`    | ~30 min total      |
 | Per-sequence Aria breakdown                     | `eval-per-seq`                                     | ~10 min            |
 | Per-finger PA-MPJPE                             | `eval-per-finger`                                  | ~5 min             |
+| Test-time adaptation on Aria-MPS gold           | `eval-tta`                                         | ~25 min            |
 | Exp A (POV-only FT)                             | `ft-wilor-pov` then `eval-wilor-{pov,aria}`        | ~3 h               |
 | **Exp B (mixed FT, headline)**                  | `ft-wilor-mixed` then `eval-wilor-{pov,aria}`      | ~3 h               |
 | Exp B+ (anchored regularizer)                   | `ft-wilor-anchored`                                | ~3 h               |
@@ -142,6 +143,17 @@ Smoke test (should print PA-MPJPE around 11 mm):
 ```bash
 make eval-wilor-pov DATA=data CKPT=checkpoints RESULTS=results
 ```
+
+## Test-time adaptation
+
+`make eval-tta` runs `src/eval/eval_tta.py`, which evaluates the
+ensemble (MGFM + HONet) on Aria-MPS gold with horizontal-flip TTA: each
+crop is predicted twice, the flipped prediction is unflipped, and the
+two are averaged in 3D. No parameter updates; this is inference-only
+TTA. Output is written to `results/tta_aria_mps.json`.
+
+Use this to probe the Aria HSAM (9.00 mm) vs Aria-MPS gold (41.67 mm)
+gap reported for WiLoR FT mixed without retraining the model.
 
 ## Path overrides
 
