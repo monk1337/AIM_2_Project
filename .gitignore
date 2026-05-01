@@ -1,22 +1,44 @@
+# Python cache
 **/__pycache__/**
+*.pyc
+
+# binary model files (datasets often ship these; never commit)
 **.pkl
+*.pth
+*.pth.tar
+*.bin
+*.safetensors
+
+# stale midterm artifact
 PIPELINE_EXPLAINED.md
+
+# datasets, checkpoints, results: never committed
 checkpoints/**
 eval/results/**
 pov_surgery_data/**
 _DATA
-# generated viz outputs (regenerable from src/viz/)
-viz_*/
-**/.DS_Store
-.DS_Store
-
-# raw datasets — never committed
 data/pov_surgery/
 data/aria_val/
 data/phase0_sidecars/
-
-# results (eval JSONs + ensemble caches)
+data/mano/
 results/*.json
 results/*.jsonl
 results/*.npz
 !results/.gitkeep
+
+# generated viz outputs (regenerable from src/viz/)
+viz_*/
+
+# OS / editor cruft
+**/.DS_Store
+.DS_Store
+.vscode/
+.idea/
+
+# secrets: never tracked, even by accident
+.env
+.env.*
+*.pem
+*.key
+secrets/
+credentials/
