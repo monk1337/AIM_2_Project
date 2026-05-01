@@ -1,6 +1,8 @@
-"""Joint-order conversions: Aria MPS native ↔ OpenPose ↔ MANO.
+"""Joint-order conversions: Aria MPS native, OpenPose, MANO.
 
-Adapted from /Users/stoic/Documents/Projects/vla/eval/phase0/phase0/config.py
+The three skeletons used in this study order their 21 keypoints differently.
+This module defines the canonical permutations we use to compare predictions
+across the four models and against each Aria GT source.
 """
 import numpy as np
 

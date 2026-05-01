@@ -1,26 +1,34 @@
 #!/usr/bin/env bash
-# Download Aria-Surgical-Hand-Pose validation set from HuggingFace.
-# Public dataset; no token required for the val split used in this study.
+# Aria-Surgical-Hand-Pose download placeholder.
+#
+# The dataset used in this study was collected at Beth Israel Hospital and is
+# NOT publicly distributed.  Access is granted on request through a private
+# HuggingFace folder; contact the authors of the report for credentials.
+#
+# Usage: scripts/download_aria.sh [DEST_DIR]
+#         (defaults to data/aria_val)
 set -euo pipefail
 
 DEST="${1:-data/aria_val}"
 mkdir -p "$DEST"
 
-echo "[1/2] cloning aria val parquet from HF (harvardsil/aria-surgical-hand-pose)"
-huggingface-cli download \
-  harvardsil/aria-surgical-hand-pose \
-  --repo-type dataset \
-  --local-dir "$DEST" \
-  --local-dir-use-symlinks False
+cat <<EOF
+The Aria-Surgical-Hand-Pose dataset is private.
 
-echo "[2/2] downloading lab-canonical filter sidecars (reject_keys + mps_v2)"
-SIDE="$(dirname "$DEST")/phase0_sidecars"
-mkdir -p "$SIDE"
-huggingface-cli download \
-  aaditya/phase0-artifacts \
-  reject_keys_all_20260419.json \
-  mps_v2_val_20260419.json \
-  --repo-type dataset \
-  --local-dir "$SIDE"
+Steps to obtain access:
+  1. Request access from the report authors (private HuggingFace folder).
+  2. Once authenticated, download the dataset into "$DEST".
 
-echo "done. Aria val at $DEST, sidecars at $SIDE"
+Expected layout under "$DEST":
+  $DEST/
+    data/                          (parquet shards)
+    metadata or sidecar files
+
+The evaluation pipeline (src/eval/eval_aria_loader.py) expects to find the
+parquet files under "$DEST/data/" and any filter / sidecar files under a
+sibling "phase0_sidecars/" directory.
+
+If you do not have access, the public POV-Surgery half of the benchmark
+(scripts/download_pov.sh) is sufficient to reproduce the synthetic-side
+results in the report.
+EOF

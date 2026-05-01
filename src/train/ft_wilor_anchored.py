@@ -143,8 +143,8 @@ def ccw90_2d(j2d, W):
 class AriaTrainDataset(Dataset):
     """Aria train HSAM pseudo-labels (joints_3d in MANO local, joints_2d after CCW90).
 
-    Applies train_reject_keys filter from aaditya/phase0-artifacts/reject_keys_all_20260419.json
-    to mirror v2-clean cleaning of val set.
+    Applies the published train_reject_keys filter (sidecar JSON, see SETUP.md)
+    to mirror v2-clean cleaning of the val set.
     """
     def __init__(self, image_size=256, augment=True, apply_reject_filter=True):
         self.image_size = image_size
