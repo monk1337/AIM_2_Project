@@ -1,0 +1,28 @@
+# Python dependencies for src/{eval,train,viz}.
+# Tested with Python 3.10, CUDA 12.1, PyTorch 2.3.
+
+# core
+numpy>=1.24
+torch>=2.0
+torchvision>=0.18
+
+# hand-pose models (off-shelf inference paths)
+wilor_mini
+smplx
+
+# evaluation + training
+opencv-python>=4.8
+Pillow>=10.0
+scikit-learn
+huggingface_hub
+datasets
+safetensors
+
+# visualization (matplotlib + 3D mesh rasterization)
+matplotlib>=3.7
+seaborn
+
+# data + utilities
+pandas
+pyarrow
+tqdm

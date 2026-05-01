@@ -1,0 +1,50 @@
+diff --git a/hamer/models/hamer.py b/hamer/models/hamer.py
+index 8a79e4d..300507b 100644
+--- a/hamer/models/hamer.py
++++ b/hamer/models/hamer.py
+@@ -55,8 +55,8 @@ class HAMER(pl.LightningModule):
+         self.register_buffer('initialized', torch.tensor(False))
+         # Setup renderer for visualization
+         if init_renderer:
+-            self.renderer = SkeletonRenderer(self.cfg)
+-            self.mesh_renderer = MeshRenderer(self.cfg, faces=self.mano.faces)
++            self.renderer = None  # patched: headless
++            self.mesh_renderer = None  # patched: headless
+         else:
+             self.renderer = None
+             self.mesh_renderer = None
+diff --git a/hamer/utils/__init__.py b/hamer/utils/__init__.py
+index 09e47cd..18a3ddf 100644
+--- a/hamer/utils/__init__.py
++++ b/hamer/utils/__init__.py
+@@ -1,20 +1,19 @@
+ import torch
+ from typing import Any
+ 
+-from .renderer import Renderer
+-from .mesh_renderer import MeshRenderer
+-from .skeleton_renderer import SkeletonRenderer
++# Renderer imports are optional (require X11/EGL) — skip on headless
++try:
++    from .renderer import Renderer
++    from .mesh_renderer import MeshRenderer
++    from .skeleton_renderer import SkeletonRenderer
++except (ImportError, AttributeError) as _e:
++    Renderer = None
++    MeshRenderer = None
++    SkeletonRenderer = None
+ from .pose_utils import eval_pose, Evaluator
+ 
++
+ def recursive_to(x: Any, target: torch.device):
+-    """
+-    Recursively transfer a batch of data to the target device
+-    Args:
+-        x (Any): Batch of data.
+-        target (torch.device): Target device.
+-    Returns:
+-        Batch of data where all tensors are transfered to the target device.
+-    """
+     if isinstance(x, dict):
+         return {k: recursive_to(v, target) for k, v in x.items()}
+     elif isinstance(x, torch.Tensor):
