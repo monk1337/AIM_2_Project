@@ -1,8 +1,0 @@
-torch>=2.0
-smplx
-wilor_mini
-matplotlib
-seaborn
-opencv-python
-Pillow
-numpy
