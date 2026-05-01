@@ -137,6 +137,7 @@ Every row in the headline table maps to one or two `Makefile` targets.
 | Exp E/F (HandOccNet FT, expected to regress)    | `ft-honet`                                         | ~2 h               |
 | Inference-time ensemble                         | `eval-ensemble`                                    | ~20 min            |
 | **Exp I (multi-teacher distillation)**          | `precompute-teacher` then `ft-wilor-distill`       | ~6 h               |
+| Exp I-v2 (distill + mesh-anchor regularizer)    | `precompute-teacher` then `ft-wilor-distill-v2`    | ~6 h               |
 
 Smoke test (should print PA-MPJPE around 11 mm):
 
@@ -173,6 +174,18 @@ export AIM2_CACHE_DIR=/path/to/cache
 ```
 
 Python scripts also accept `--data`, `--ckpt`, `--out` flags directly.
+
+## Distillation gap analysis
+
+The inference ensemble (0.75 MGFM + 0.25 HONet) reaches 11.52 mm on
+Aria-MPS gold, but the Exp I student WiLoR only reaches 27.87 mm, a
+2.4x gap. Exp I-v2 (`ft-wilor-distill-v2`) is the second iteration:
+it keeps the multi-teacher supervision from Exp I but adds the
+mesh-shape preservation regularizer from Exp B+ (lambda_mesh = 0.5)
+to discourage MANO-pose drift toward unnatural mesh configurations
+that score well on PA-MPJPE but render badly. Run via
+`make ft-wilor-distill-v2` then `make eval-wilor-aria` against
+`$(CKPT)/wilor_ft_distill_v2`.
 
 ## Reproducibility notes
 

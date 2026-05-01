@@ -16,7 +16,8 @@ PYTHON     ?= python
 .PHONY: help eval-wilor-pov eval-hamer-pov eval-handoccnet-pov eval-mgfm-pov \
         eval-wilor-aria eval-hamer-aria eval-handoccnet-aria eval-mgfm-aria \
         eval-ensemble eval-per-seq eval-per-finger eval-tta \
-        ft-wilor-pov ft-wilor-mixed ft-wilor-anchored ft-wilor-distill ft-honet \
+        ft-wilor-pov ft-wilor-mixed ft-wilor-anchored ft-wilor-distill \
+        ft-wilor-distill-v2 ft-honet \
         precompute-teacher viz-mesh viz-kpts viz-export
 
 help:
@@ -30,6 +31,7 @@ help:
 	@echo "  ft-wilor-mixed                                  Exp B (POV + Aria HSAM)"
 	@echo "  ft-wilor-anchored                               Exp B+ (mesh anchor)"
 	@echo "  ft-wilor-distill                                Exp I  (MGFM+HONet -> WiLoR)"
+	@echo "  ft-wilor-distill-v2                             Exp I-v2 (multi-teacher + mesh anchor)"
 	@echo "  ft-honet                                        HandOccNet FT (Exp E/F)"
 	@echo "  precompute-teacher                              cache MGFM+HONet on Aria train"
 	@echo "  viz-{mesh,kpts,export}                          rendering helpers"
@@ -102,6 +104,12 @@ ft-wilor-distill: precompute-teacher
 	$(PYTHON) -m src.train.ft_wilor_distill --data $(DATA) --ckpt $(CKPT)/wilor \
 	    --teacher_cache $(RESULTS)/teacher_cache.npz \
 	    --out $(CKPT)/wilor_ft_distill
+
+ft-wilor-distill-v2: precompute-teacher
+	$(PYTHON) -m src.train.ft_wilor_distill_v2 --data $(DATA) --ckpt $(CKPT)/wilor \
+	    --teacher_cache $(RESULTS)/teacher_cache.npz \
+	    --lambda_mesh 0.5 \
+	    --out $(CKPT)/wilor_ft_distill_v2
 
 ft-honet:
 	$(PYTHON) -m src.train.ft_honet --data $(DATA) --ckpt $(CKPT)/handoccnet \
