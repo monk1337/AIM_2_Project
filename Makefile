@@ -15,7 +15,7 @@ PYTHON     ?= python
 
 .PHONY: help eval-wilor-pov eval-hamer-pov eval-handoccnet-pov eval-mgfm-pov \
         eval-wilor-aria eval-hamer-aria eval-handoccnet-aria eval-mgfm-aria \
-        eval-ensemble eval-per-seq eval-per-finger \
+        eval-ensemble eval-per-seq eval-per-finger eval-tta \
         ft-wilor-pov ft-wilor-mixed ft-wilor-anchored ft-wilor-distill ft-honet \
         precompute-teacher viz-mesh viz-kpts viz-export
 
@@ -25,6 +25,7 @@ help:
 	@echo "  eval-ensemble                                   weighted MGFM+HONet"
 	@echo "  eval-per-seq                                    per-sequence breakdown"
 	@echo "  eval-per-finger                                 per-finger PA-MPJPE"
+	@echo "  eval-tta                                        test-time adaptation on Aria-MPS gold"
 	@echo "  ft-wilor-pov                                    Exp A (POV-only)"
 	@echo "  ft-wilor-mixed                                  Exp B (POV + Aria HSAM)"
 	@echo "  ft-wilor-anchored                               Exp B+ (mesh anchor)"
@@ -78,6 +79,10 @@ eval-per-seq:
 eval-per-finger:
 	$(PYTHON) -m src.eval.per_finger_eval --data $(DATA) --ckpt $(CKPT) \
 	    --out $(RESULTS)/per_finger.json
+
+eval-tta:
+	$(PYTHON) -m src.eval.eval_tta --data $(DATA) --ckpt $(CKPT) \
+	    --out $(RESULTS)/tta_aria_mps.json
 
 # --- training ---------------------------------------------------------------
 
