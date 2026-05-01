@@ -20,9 +20,13 @@ sys.path.insert(0, "/workspace/code")
 from eval_joint_orders import aria_mps_to_op  # noqa: E402
 
 
-ARIA_VAL_DIR = "/workspace/datasets/aria_val/data"
-POV_DIR = "/workspace/datasets/pov_surgery/data"
-SIDECAR_DIR = "/workspace/datasets/phase0_sidecars"
+# Path defaults match the original training environment. Override at runtime
+# with environment variables to point the loader at your own filesystem
+# (see SETUP.md "Path overrides").
+import os as _os
+ARIA_VAL_DIR = _os.environ.get("AIM2_ARIA_VAL_DIR",  "/workspace/datasets/aria_val/data")
+POV_DIR      = _os.environ.get("AIM2_POV_DIR",       "/workspace/datasets/pov_surgery/data")
+SIDECAR_DIR  = _os.environ.get("AIM2_SIDECAR_DIR",   "/workspace/datasets/phase0_sidecars")
 
 
 def _load_reject_keys() -> set:

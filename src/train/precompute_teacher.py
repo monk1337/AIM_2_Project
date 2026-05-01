@@ -26,9 +26,17 @@ sys.path.insert(0, "/workspace/code")
 from eval_loader import derive_bbox_from_joints2d  # noqa: E402
 
 
-ARIA_DIR = "/workspace/datasets/aria_val/data"
-SIDECAR = "/workspace/datasets/phase0_sidecars/reject_keys_all_20260419.json"
-OUT = "/workspace/cache/ensemble_teacher_aria_train.npz"
+# Override these via AIM2_ARIA_DIR, AIM2_SIDECAR_DIR, AIM2_CACHE_DIR (see SETUP.md).
+import os as _os
+ARIA_DIR = _os.environ.get("AIM2_ARIA_DIR", "/workspace/datasets/aria_val/data")
+SIDECAR = _os.path.join(
+    _os.environ.get("AIM2_SIDECAR_DIR", "/workspace/datasets/phase0_sidecars"),
+    "reject_keys_all_20260419.json",
+)
+OUT = _os.path.join(
+    _os.environ.get("AIM2_CACHE_DIR", "/workspace/cache"),
+    "ensemble_teacher_aria_train.npz",
+)
 
 
 def ccw90_2d(j2d, W):

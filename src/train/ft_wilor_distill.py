@@ -164,7 +164,9 @@ class AriaDistillDataset(Dataset):
 
         drop = set()
         if apply_reject_filter:
-            R = json.load(open("/workspace/datasets/phase0_sidecars/reject_keys_all_20260419.json"))
+            import os as _os
+            _sd = _os.environ.get("AIM2_SIDECAR_DIR", "/workspace/datasets/phase0_sidecars")
+            R = json.load(open(_os.path.join(_sd, "reject_keys_all_20260419.json")))
             drop = set(R.get("train_reject_keys", [])) | set(R.get("train_skip_keys", []))
 
         files = sorted(Path(ARIA_DIR).glob("train-*.parquet"))
