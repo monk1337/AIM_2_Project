@@ -17,6 +17,7 @@ checkpoints/**
 eval/results/**
 pov_surgery_data/**
 _DATA
+finetuning/output/**
 data/pov_surgery/
 data/aria_val/
 data/phase0_sidecars/
